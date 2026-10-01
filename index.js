@@ -76,4 +76,11 @@ client.on('messageCreate', async (message) => {
 });
 
 // Log in using environment variable
-client.login(process.env.DISCORD_TOKEN);
+if (!process.env.DISCORD_TOKEN) {
+  console.error("CRITICAL ERROR: DISCORD_TOKEN environment variable is missing or undefined!");
+  process.exit(1);
+}
+
+client.login(process.env.DISCORD_TOKEN).catch(err => {
+  console.error("LOGIN FAILED:", err);
+});

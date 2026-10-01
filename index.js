@@ -11,7 +11,7 @@ const path = require('path');
 // ==========================================
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('Above Utilities Engine Online 24/7'));
+app.get('/', (req, res) => res.send('Bot Online 24/7'));
 app.listen(PORT, () => console.log(`Web server listening on port ${PORT}`));
 
 // ==========================================
@@ -37,7 +37,7 @@ const DB_FILE = path.join(__dirname, 'database.json');
 let db = {
   config: {
     prefixes: [',', '?'],
-    quoteChannelId: '1555010046994415697',
+    quoteChannelId: '',
     clipsChannelId: '',
     staffRoleId: '',
     logChannelId: '',
@@ -45,15 +45,14 @@ let db = {
     topChatterRoleId: '',
     joinToCreateVcId: '',
   },
-  userRanks: {},      // userId: { game: { rank: string, verified: boolean } }
-  userCoins: {},      // userId: number
-  warnings: {},       // userId: [ { reason, staff, date } ]
-  afkUsers: {},       // userId: reason
-  stickyMessages: {}, // channelId: text
-  customAliases: {},  // alias: command
+  userRanks: {},      
+  userCoins: {},      
+  warnings: {},       
+  afkUsers: {},       
+  stickyMessages: {}, 
+  customAliases: {},  
 };
 
-// Load persistent data on startup
 if (fs.existsSync(DB_FILE)) {
   try {
     db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
@@ -63,12 +62,10 @@ if (fs.existsSync(DB_FILE)) {
   }
 }
 
-// Save database to disk
 function saveDB() {
   fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
 }
 
-// Runtime trackers
 const deletedMessages = new Map();
 let globalMessageCounter = 0;
 let minigameActive = false;
@@ -76,35 +73,28 @@ let currentMinigameAnswer = null;
 
 client.once('ready', () => {
   console.log(`[SYSTEM READY] Logged in as ${client.user.tag}`);
-
-  // Schedule Leaderboard Auto-Update every 5 minutes (300,000 ms)
   setInterval(updateLeaderboardEmbed, 300000);
 });
 
 // ==========================================
-// 4. AUTO-ROLE & ANTI-RAID JOIN HANDLER
+// 4. AUTO-ROLE & MEMBER JOIN HANDLER
 // ==========================================
 client.on('guildMemberAdd', async (member) => {
-  // DM Member on Join
   member.send(`Welcome to **${member.guild.name}**! Check out the rules and enjoy your stay.`).catch(() => {});
 
-  // Auto-Role Assignment
   if (db.config.autoRoleId) {
     const role = member.guild.roles.cache.get(db.config.autoRoleId);
     if (role) member.roles.add(role).catch(console.error);
   }
 
-  // Audit Logging
   logAction(member.guild, '📥 Member Joined', `User: <@${member.id}> (${member.user.tag})`);
 });
 
-// Detect Booster Role Updates & Send DM Notifications
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
-  // Role change DM notification
   const addedRoles = newMember.roles.cache.filter(role => !oldMember.roles.cache.has(role.id));
   if (addedRoles.size > 0) {
     addedRoles.forEach(role => {
-      newMember.send(` You have been granted the role **${role.name}** in **${newMember.guild.name}**!`).catch(() => {});
+      newMember.send(`You have been granted the role **${role.name}** in **${newMember.guild.name}**!`).catch(() => {});
     });
   }
 });
@@ -113,7 +103,6 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
 // 5. AUTO-VC & JOIN TO CREATE HANDLER
 // ==========================================
 client.on('voiceStateUpdate', async (oldState, newState) => {
-  // Join to Create Trigger
   if (newState.channelId && newState.channelId === db.config.joinToCreateVcId) {
     const guild = newState.guild;
     const user = newState.member.user;
@@ -129,7 +118,6 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 
     await newState.setChannel(createdChannel);
 
-    // Send Control Panel Menu into the new VC text channel
     const menuEmbed = new EmbedBuilder()
       .setColor('#5865F2')
       .setTitle('🎙️ Voice Channel Control Panel')
@@ -144,7 +132,6 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     await createdChannel.send({ embeds: [menuEmbed], components: [row] });
   }
 
-  // Auto Delete Empty Temporary VCs
   if (oldState.channel && oldState.channel.name.startsWith('🔊 ') && oldState.channel.members.size === 0) {
     await oldState.channel.delete().catch(() => {});
   }
@@ -166,7 +153,6 @@ client.on('messageDelete', (message) => {
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
 
-  // --- A. CLIPS CHANNEL AUTO-UPVOTE ---
   if (db.config.clipsChannelId && message.channel.id === db.config.clipsChannelId) {
     if (message.attachments.size > 0 || message.content.includes('http')) {
       await message.react('👍');
@@ -174,10 +160,8 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // --- B. STICKY MESSAGE RE-POSTING ---
   if (db.stickyMessages[message.channel.id]) {
     const stickyText = db.stickyMessages[message.channel.id];
-    // Delete last sticky message if cached, then re-post
     const msgs = await message.channel.messages.fetch({ limit: 10 });
     const lastBotMsg = msgs.find(m => m.author.id === client.user.id && m.content.includes('📌 **Sticky Note:**'));
     if (lastBotMsg) await lastBotMsg.delete().catch(() => {});
@@ -185,7 +169,6 @@ client.on('messageCreate', async (message) => {
     await message.channel.send(`📌 **Sticky Note:**\n${stickyText}`);
   }
 
-  // --- C. AFK SYSTEM ---
   if (db.afkUsers[message.author.id]) {
     delete db.afkUsers[message.author.id];
     saveDB();
@@ -200,10 +183,8 @@ client.on('messageCreate', async (message) => {
     });
   }
 
-  // --- D. CHAT MILESTONES & TRIVIA (45s AUTO-DELETE) ---
   globalMessageCounter++;
 
-  // Award 10 coins per 100 messages
   if (globalMessageCounter % 100 === 0) {
     const current = db.userCoins[message.author.id] || 0;
     db.userCoins[message.author.id] = current + 10;
@@ -211,7 +192,6 @@ client.on('messageCreate', async (message) => {
     message.channel.send(`🎉 **100 Messages Hit!** <@${message.author.id}> earned **10 coins**!`);
   }
 
-  // Dynamic Trivia (Triggers every 40 messages)
   if (globalMessageCounter % 40 === 0 && !minigameActive) {
     minigameActive = true;
     const n1 = Math.floor(Math.random() * 30) + 1;
@@ -220,7 +200,6 @@ client.on('messageCreate', async (message) => {
 
     const minigameMsg = await message.channel.send(`⚡ **TRIVIA:** What is **${n1} +${n2}**? Type the answer first to win **15 coins**! *(Self-destructs in 45s)*`);
 
-    // Auto-delete trivia after 45 seconds to keep chat clean
     setTimeout(async () => {
       if (minigameActive) {
         minigameActive = false;
@@ -238,16 +217,12 @@ client.on('messageCreate', async (message) => {
     message.reply('🎉 Correct! You won **15 coins**!');
   }
 
-  // --- E. COMMAND PARSER (HYBRID PREFIX) ---
   const usedPrefix = db.config.prefixes.find(p => message.content.startsWith(p));
   if (!usedPrefix) return;
 
   const args = message.content.slice(usedPrefix.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
 
-  // ------------------------------------------
-  // GAME RANK SYSTEM WITH STAFF VERIFICATION
-  // ------------------------------------------
   if (command === 'setrank') {
     const game = args[0]?.toLowerCase();
     const rank = args.slice(1).join(' ');
@@ -258,7 +233,6 @@ client.on('messageCreate', async (message) => {
     db.userRanks[message.author.id][game] = { rank, verified: false };
     saveDB();
 
-    // Alert staff for verification
     if (db.config.logChannelId) {
       const logChan = message.guild.channels.cache.get(db.config.logChannelId);
       if (logChan) {
@@ -316,9 +290,6 @@ client.on('messageCreate', async (message) => {
     return message.channel.send({ embeds: [rankEmbed] });
   }
 
-  // ------------------------------------------
-  // PANELS: TICKET & SELFIE VERIFICATION
-  // ------------------------------------------
   if (command === 'sendticketpanel') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) return;
 
@@ -349,17 +320,6 @@ client.on('messageCreate', async (message) => {
     return message.channel.send({ embeds: [selfieEmbed], components: [row] });
   }
 
-  // ------------------------------------------
-  // MODERATION, WARNINGS & DM ALERTS
-  // ------------------------------------------
-  if (command === 'warn') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) return;
-    const target = message.mentions.members.first();
-    const reason = args.slice(1).join(' ') || 'No reason provided';
-    if (!target) return message.reply('Please mention a user to warn.');
-// ------------------------------------------
-  // MODERATION, WARNINGS & DM ALERTS
-  // ------------------------------------------
   if (command === 'warn') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) return;
     const target = message.mentions.members.first();
@@ -371,7 +331,7 @@ client.on('messageCreate', async (message) => {
     saveDB();
 
     target.send(`⚠️ You received a warning in **${message.guild.name}**\n**Reason:** ${reason}`).catch(() => {});
-    return message.channel.send(` Warned **${target.user.tag}**. Total warnings: **${db.warnings[target.id].length}**`);
+    return message.channel.send(`Warned **${target.user.tag}**. Total warnings: **${db.warnings[target.id].length}**`);
   }
 
   if (command === 'warnings') {
@@ -383,12 +343,11 @@ client.on('messageCreate', async (message) => {
     const warnEmbed = new EmbedBuilder()
       .setColor('#ED4245')
       .setTitle(`⚠️ Warning Log — ${target.username}`)
-      .setDescription(logs.map((w, i) => `**#${i + 1}** - *${w.reason}* (By: ${w.staff})`).join('\n'));
+      .setDescription(logs.map((w, i) => `**#${i + 1}** - *${w.reason}* (By:${w.staff})`).join('\n'));
 
     return message.channel.send({ embeds: [warnEmbed] });
-  }  // ------------------------------------------
-  // CONFIGURATION SYSTEM
-  // ------------------------------------------
+  }
+
   if (command === 'config') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) return;
     const key = args[0];
@@ -405,12 +364,11 @@ client.on('messageCreate', async (message) => {
 });
 
 // ==========================================
-// 7. BUTTON INTERACTION HANDLER (PANELS)
+// 7. BUTTON INTERACTION HANDLER
 // ==========================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
 
-  // --- A. TICKET BUTTON & 48-HOUR AUTO DELETE ---
   if (interaction.customId === 'open_ticket') {
     const guild = interaction.guild;
     const user = interaction.user;
@@ -425,7 +383,6 @@ client.on('interactionCreate', async (interaction) => {
       ],
     });
 
-    // Alert Staff
     if (db.config.staffRoleId) {
       ticketChan.send(`<@&${db.config.staffRoleId}> New ticket created by <@${user.id}>!`);
     }
@@ -433,15 +390,16 @@ client.on('interactionCreate', async (interaction) => {
     ticketChan.send(`Hello <@${user.id}>! Staff will be with you shortly. This ticket automatically closes after 48 hours of inactivity.`);
     await interaction.reply({ content: `Ticket created: ${ticketChan}`, ephemeral: true });
 
-    // Set 48-Hour Auto-Delete Timeout (172,800,000 ms)
     setTimeout(() => {
       ticketChan.delete().catch(() => {});
     }, 172800000);
   }
 
-  // --- B. RANK VERIFICATION BUTTONS ---
   if (interaction.customId.startsWith('verify_')) {
-    const [, action, targetId, game] = interaction.customId.split('_');
+    const parts = interaction.customId.split('_');
+    const action = parts[1];
+    const targetId = parts[2];
+    const game = parts[3];
 
     if (db.userRanks[targetId]?.[game]) {
       if (action === 'approve') {

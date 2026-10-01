@@ -357,23 +357,36 @@ client.on('messageCreate', async (message) => {
     const target = message.mentions.members.first();
     const reason = args.slice(1).join(' ') || 'No reason provided';
     if (!target) return message.reply('Please mention a user to warn.');
+// ------------------------------------------
+  // MODERATION, WARNINGS & DM ALERTS
+  // ------------------------------------------
+  if (command === 'warn') {
+    if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) return;
+    const target = message.mentions.members.first();
+    const reason = args.slice(1).join(' ') || 'No reason provided';
+    if (!target) return message.reply('Please mention a user to warn.');
 
     if (!db.warnings[target.id]) db.warnings[target.id] = [];
     db.warnings[target.id].push({ reason, staff: message.author.tag, date: new Date().toISOString() });
     saveDB();
 
     target.send(`⚠️ You received a warning in **${message.guild.name}**\n**Reason:** ${reason}`).catch(() => {});
-    return message.channel.send(` Warned **${target.user.tag}**. Total warnings: **${db.warnings[target.id].length}**`);   }    if (command === 'warnings') {     const target = message.mentions.users.first() \vert{}\vert{} message.author;     const logs = db.warnings[target.id] \vert{}\vert{} [];      if (logs.length === 0) return message.reply(`**${target.username}** has no recorded warnings.`);
+    return message.channel.send(` Warned **${target.user.tag}**. Total warnings: **${db.warnings[target.id].length}**`);
+  }
+
+  if (command === 'warnings') {
+    const target = message.mentions.users.first() || message.author;
+    const logs = db.warnings[target.id] || [];
+
+    if (logs.length === 0) return message.reply(`**${target.username}** has no recorded warnings.`);
 
     const warnEmbed = new EmbedBuilder()
       .setColor('#ED4245')
       .setTitle(`⚠️ Warning Log — ${target.username}`)
-      .setDescription(logs.map((w, i) => `**#${i + 1}** - *${w.reason}* (By:${w.staff})`).join('\n'));
+      .setDescription(logs.map((w, i) => `**#${i + 1}** - *${w.reason}* (By: ${w.staff})`).join('\n'));
 
     return message.channel.send({ embeds: [warnEmbed] });
-  }
-
-  // ------------------------------------------
+  }  // ------------------------------------------
   // CONFIGURATION SYSTEM
   // ------------------------------------------
   if (command === 'config') {

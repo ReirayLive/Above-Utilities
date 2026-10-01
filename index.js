@@ -7,6 +7,17 @@ const fs = require('fs');
 const path = require('path');
 
 // ==========================================
+// 0. GLOBAL CRASH SHIELD (PREVENTS SILENT CRASHES)
+// ==========================================
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Unhandled Rejection]:', reason);
+});
+
+process.on('uncaughtException', (err, origin) => {
+  console.error('[Uncaught Exception]:', err, origin);
+});
+
+// ==========================================
 // 1. EXPRESS KEEP-ALIVE WEB SERVER
 // ==========================================
 const app = express();
@@ -43,7 +54,7 @@ let db = {
     logChannelId: '',
     autoRoleId: '',
     topChatterRoleId: '',
-    verifiedRoleId: '', // Role given upon selfie verification (,verify @user)
+    verifiedRoleId: '',
     joinToCreateVcId: '',
   },
   userRanks: {},      
@@ -64,7 +75,11 @@ if (fs.existsSync(DB_FILE)) {
 }
 
 function saveDB() {
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+  } catch (e) {
+    console.error('Error saving DB:', e);
+  }
 }
 
 const deletedMessages = new Map();
@@ -115,22 +130,24 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
       permissionOverwrites: [
         { id: user.id, allow: [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.MoveMembers] },
       ],
-    });
+    }).catch(console.error);
 
-    await newState.setChannel(createdChannel);
+    if (createdChannel) {
+      await newState.setChannel(createdChannel).catch(console.error);
 
-    const menuEmbed = new EmbedBuilder()
-      .setColor('#5865F2')
-      .setTitle('🎙️ Voice Channel Control Panel')
-      .setDescription('Use the buttons below to customize your voice room.');
+      const menuEmbed = new EmbedBuilder()
+        .setColor('#5865F2')
+        .setTitle('🎙️ Voice Channel Control Panel')
+        .setDescription('Use the buttons below to customize your voice room.');
 
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('vc_lock').setLabel('🔒 Lock').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId('vc_unlock').setLabel('🔓 Unlock').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId('vc_hide').setLabel('👁️ Hide').setStyle(ButtonStyle.Danger)
-    );
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('vc_lock').setLabel('🔒 Lock').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('vc_unlock').setLabel('🔓 Unlock').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('vc_hide').setLabel('👁️ Hide').setStyle(ButtonStyle.Danger)
+      );
 
-    await createdChannel.send({ embeds: [menuEmbed], components: [row] });
+      await createdChannel.send({ embeds: [menuEmbed], components: [row] }).catch(console.error);
+    }
   }
 
   if (oldState.channel && oldState.channel.name.startsWith('🔊 ') && oldState.channel.members.size === 0) {
@@ -154,58 +171,64 @@ client.on('messageDelete', (message) => {
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
 
+  // Clips Channel Auto-Reaction
   if (db.config.clipsChannelId && message.channel.id === db.config.clipsChannelId) {
     if (message.attachments.size > 0 || message.content.includes('http')) {
-      await message.react('👍');
-      await message.react('👎');
+      await message.react('👍').catch(() => {});
+      await message.react('👎').catch(() => {});
     }
   }
 
+  // Sticky Message System
   if (db.stickyMessages[message.channel.id]) {
     const stickyText = db.stickyMessages[message.channel.id];
-    const msgs = await message.channel.messages.fetch({ limit: 10 });
-    const lastBotMsg = msgs.find(m => m.author.id === client.user.id && m.content.includes('📌 **Sticky Note:**'));
-    if (lastBotMsg) await lastBotMsg.delete().catch(() => {});
-
-    await message.channel.send(`📌 **Sticky Note:**\n${stickyText}`);
+    const msgs = await message.channel.messages.fetch({ limit: 10 }).catch(() => null);
+    if (msgs) {
+      const lastBotMsg = msgs.find(m => m.author.id === client.user.id && m.content.includes('📌 **Sticky Note:**'));
+      if (lastBotMsg) await lastBotMsg.delete().catch(() => {});
+    }
+    await message.channel.send(`📌 **Sticky Note:**\n${stickyText}`).catch(() => {});
   }
 
+  // AFK Handler
   if (db.afkUsers[message.author.id]) {
     delete db.afkUsers[message.author.id];
     saveDB();
-    message.reply('Welcome back! Your AFK status has been removed.').then(m => setTimeout(() => m.delete().catch(() => {}), 4000));
+    message.reply('Welcome back! Your AFK status has been removed.').then(m => setTimeout(() => m.delete().catch(() => {}), 4000)).catch(() => {});
   }
 
   if (message.mentions.users.size > 0) {
     message.mentions.users.forEach(u => {
       if (db.afkUsers[u.id]) {
-        message.reply(`**${u.username}** is currently AFK: *${db.afkUsers[u.id]}*`);
+        message.reply(`**${u.username}** is currently AFK: *${db.afkUsers[u.id]}*`).catch(() => {});
       }
     });
   }
 
+  // Activity Coin System
   globalMessageCounter++;
 
   if (globalMessageCounter % 100 === 0) {
     const current = db.userCoins[message.author.id] || 0;
     db.userCoins[message.author.id] = current + 10;
     saveDB();
-    message.channel.send(`🎉 **100 Messages Hit!** <@${message.author.id}> earned **10 coins**!`);
+    message.channel.send(`🎉 **100 Messages Hit!** <@${message.author.id}> earned **10 coins**!`).catch(() => {});
   }
 
+  // Math Minigame Spawn
   if (globalMessageCounter % 40 === 0 && !minigameActive) {
     minigameActive = true;
     const n1 = Math.floor(Math.random() * 30) + 1;
     const n2 = Math.floor(Math.random() * 30) + 1;
     currentMinigameAnswer = (n1 + n2).toString();
 
-    const minigameMsg = await message.channel.send(`⚡ **TRIVIA:** What is **${n1} +${n2}**? Type the answer first to win **15 coins**! *(Self-destructs in 45s)*`);
+    const minigameMsg = await message.channel.send(`⚡ **TRIVIA:** What is **${n1} +${n2}**? Type the answer first to win **15 coins**! *(Self-destructs in 45s)*`).catch(() => {});
 
     setTimeout(async () => {
       if (minigameActive) {
         minigameActive = false;
         currentMinigameAnswer = null;
-        await minigameMsg.delete().catch(() => {});
+        if (minigameMsg) await minigameMsg.delete().catch(() => {});
       }
     }, 45000);
   }
@@ -215,14 +238,34 @@ client.on('messageCreate', async (message) => {
     currentMinigameAnswer = null;
     db.userCoins[message.author.id] = (db.userCoins[message.author.id] || 0) + 15;
     saveDB();
-    message.reply('🎉 Correct! You won **15 coins**!');
+    message.reply('🎉 Correct! You won **15 coins**!').catch(() => {});
   }
 
+  // Command Prefix Resolution
   const usedPrefix = db.config.prefixes.find(p => message.content.startsWith(p));
   if (!usedPrefix) return;
 
   const args = message.content.slice(usedPrefix.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
+
+  // ------------------------------------------
+  // HELP & ALL COMMANDS LIST
+  // ------------------------------------------
+  if (command === 'help' || command === 'commands') {
+    const helpEmbed = new EmbedBuilder()
+      .setColor('#5865F2')
+      .setTitle('📜 Bot Command Center')
+      .setDescription(`Current Prefixes: \`${db.config.prefixes.join('`, `')}\``)
+      .addFields(
+        { name: '🎮 Gaming & Ranks', value: `\`${usedPrefix}setrank <game> <rank>\`\n\`${usedPrefix}rank [@user]\`\n\`${usedPrefix}removerank <game>\`` },
+        { name: '🛡️ Selfie & Rank Verification', value: `\`${usedPrefix}verify @user\` *(Selfie Verification)*\n\`${usedPrefix}verifyrank @user <game>\` *(Game Rank)*\n\`${usedPrefix}unverifyrank @user <game>\`` },
+        { name: '💬 Chat Tools & Fun', value: `\`${usedPrefix}afk [reason]\`\n\`${usedPrefix}snipe\`\n\`${usedPrefix}coins [@user]\`\n\`${usedPrefix}quote [message]\`` },
+        { name: '🛠️ Staff Moderation', value: `\`${usedPrefix}warn @user <reason>\`\n\`${usedPrefix}warnings [@user]\`\n\`${usedPrefix}sticky <text>\`\n\`${usedPrefix}unsticky\`` },
+        { name: '⚙️ Admin Setup', value: `\`${usedPrefix}sendticketpanel\`\n\`${usedPrefix}sendselfiepanel\`\n\`${usedPrefix}config <setting> <value>\`` }
+      );
+
+    return message.channel.send({ embeds: [helpEmbed] }).catch(() => {});
+  }
 
   // ------------------------------------------
   // GAME RANK COMMAND (,setrank / ,rankset)
@@ -234,16 +277,10 @@ client.on('messageCreate', async (message) => {
     if (!game || !rank) return message.reply(`Usage: \`${usedPrefix}setrank <game> <rank>\``);
 
     const topTierRanks = [
-      'predator', 'apex predator',                           // Apex
-      'radiant',                                            // Valorant
-      'top 500', 'grandmaster', 'champion',                // Overwatch & Siege & Fortnite
-      'supersonic legend', 'ssl',                           // Rocket League
-      'iridescent', 'top 250',                              // CoD / Warzone
-      'ruby', 'diamond 1', 'emerald 1',                    // The Finals / Smite
-      'unreal',                                             // Fortnite
-      'godlike', 'challenger',                              // Smite / Rivals
-      'immortal',                                           // Valorant / Smite
-      'heroic', 'legendary'                                 // General top ranks
+      'predator', 'apex predator', 'radiant', 'top 500', 'grandmaster', 
+      'champion', 'supersonic legend', 'ssl', 'iridescent', 'top 250', 
+      'ruby', 'diamond 1', 'emerald 1', 'unreal', 'godlike', 'challenger', 
+      'immortal', 'heroic', 'legendary'
     ];
 
     const isHighRank = topTierRanks.some(highRank => rank.toLowerCase().includes(highRank));
@@ -268,7 +305,7 @@ client.on('messageCreate', async (message) => {
             new ButtonBuilder().setCustomId(`verify_deny_${message.author.id}_${game}`).setLabel('Deny').setStyle(ButtonStyle.Danger)
           );
 
-          logChan.send({ embeds: [verifyEmbed], components: [row] });
+          logChan.send({ embeds: [verifyEmbed], components: [row] }).catch(() => {});
         }
       }
 
@@ -351,7 +388,7 @@ client.on('messageCreate', async (message) => {
     db.userRanks[target.id][game].verified = false;
     saveDB();
 
-    return message.reply(`⚠️ Unverified **${target.username}**'s rank for **${game.toUpperCase()}**.`);
+    return message.reply(`⚠️️ Unverified **${target.username}**'s rank for **${game.toUpperCase()}**.`);
   }
 
   if (command === 'removerank') {
@@ -390,6 +427,80 @@ client.on('messageCreate', async (message) => {
     return message.channel.send({ embeds: [rankEmbed] });
   }
 
+  // ------------------------------------------
+  // AFK & CHAT TOOLS (,afk / ,snipe / ,coins)
+  // ------------------------------------------
+  if (command === 'afk') {
+    const reason = args.join(' ') || 'AFK';
+    db.afkUsers[message.author.id] = reason;
+    saveDB();
+    return message.reply(`I set your AFK: **${reason}**`);
+  }
+
+  if (command === 'snipe') {
+    const sniped = deletedMessages.get(message.channel.id);
+    if (!sniped) return message.reply('There is nothing to snipe!');
+
+    const snipeEmbed = new EmbedBuilder()
+      .setColor('#ED4245')
+      .setAuthor({ name: sniped.author.tag, iconURL: sniped.author.displayAvatarURL() })
+      .setDescription(sniped.content)
+      .setTimestamp(sniped.time);
+
+    if (sniped.image) snipeEmbed.setImage(sniped.image);
+
+    return message.channel.send({ embeds: [snipeEmbed] });
+  }
+
+  if (command === 'coins' || command === 'bal') {
+    const target = message.mentions.users.first() || message.author;
+    const coins = db.userCoins[target.id] || 0;
+    return message.reply(`🪙 **${target.username}** has **${coins}** coins.`);
+  }
+
+  if (command === 'quote') {
+    const quoteMsg = args.join(' ');
+    if (!quoteMsg) return message.reply(`Usage: \`${usedPrefix}quote <text or quote>\``);
+
+    if (db.config.quoteChannelId) {
+      const qChan = message.guild.channels.cache.get(db.config.quoteChannelId);
+      if (qChan) {
+        const qEmbed = new EmbedBuilder()
+          .setColor('#FEE75C')
+          .setTitle('💬 Server Quote')
+          .setDescription(`"${quoteMsg}"`)
+          .setFooter({ text: `Submitted by ${message.author.tag}` });
+        
+        qChan.send({ embeds: [qEmbed] });
+        return message.reply('Quote posted successfully!');
+      }
+    }
+    return message.reply('Quote channel is not configured. Use `,config quoteChannelId <ID>`');
+  }
+
+  // ------------------------------------------
+  // STICKY MESSAGES (,sticky / ,unsticky)
+  // ------------------------------------------
+  if (command === 'sticky') {
+    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) return;
+    const stickyText = args.join(' ');
+    if (!stickyText) return message.reply(`Usage: \`${usedPrefix}sticky <message text>\``);
+
+    db.stickyMessages[message.channel.id] = stickyText;
+    saveDB();
+    return message.channel.send(`📌 **Sticky Note Set:**\n${stickyText}`);
+  }
+
+  if (command === 'unsticky') {
+    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) return;
+    delete db.stickyMessages[message.channel.id];
+    saveDB();
+    return message.reply('Removed sticky message from this channel.');
+  }
+
+  // ------------------------------------------
+  // ADMIN SETUP (,sendticketpanel / ,sendselfiepanel / ,config / ,warn)
+  // ------------------------------------------
   if (command === 'sendticketpanel') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) return;
 
@@ -481,18 +592,20 @@ client.on('interactionCreate', async (interaction) => {
         { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
         { id: user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
       ],
-    });
+    }).catch(console.error);
 
-    if (db.config.staffRoleId) {
-      ticketChan.send(`<@&${db.config.staffRoleId}> New ticket created by <@${user.id}>!`);
+    if (ticketChan) {
+      if (db.config.staffRoleId) {
+        ticketChan.send(`<@&${db.config.staffRoleId}> New ticket created by <@${user.id}>!`).catch(() => {});
+      }
+
+      ticketChan.send(`Hello <@${user.id}>! Staff will be with you shortly. This ticket automatically closes after 48 hours of inactivity.`).catch(() => {});
+      await interaction.reply({ content: `Ticket created: ${ticketChan}`, ephemeral: true }).catch(() => {});
+
+      setTimeout(() => {
+        ticketChan.delete().catch(() => {});
+      }, 172800000);
     }
-
-    ticketChan.send(`Hello <@${user.id}>! Staff will be with you shortly. This ticket automatically closes after 48 hours of inactivity.`);
-    await interaction.reply({ content: `Ticket created: ${ticketChan}`, ephemeral: true });
-
-    setTimeout(() => {
-      ticketChan.delete().catch(() => {});
-    }, 172800000);
   }
 
   if (interaction.customId.startsWith('verify_')) {
@@ -505,11 +618,11 @@ client.on('interactionCreate', async (interaction) => {
       if (action === 'approve') {
         db.userRanks[targetId][game].verified = true;
         saveDB();
-        await interaction.update({ content: `✅ Rank approved for <@${targetId}> on **${game}**!`, components: [] });
+        await interaction.update({ content: `✅ Rank approved for <@${targetId}> on **${game}**!`, components: [] }).catch(() => {});
       } else {
         delete db.userRanks[targetId][game];
         saveDB();
-        await interaction.update({ content: `❌ Rank denied for <@${targetId}> on **${game}**.`, components: [] });
+        await interaction.update({ content: `❌ Rank denied for <@${targetId}> on **${game}**.`, components: [] }).catch(() => {});
       }
     }
   }
@@ -528,7 +641,7 @@ function logAction(guild, title, desc) {
 }
 
 function updateLeaderboardEmbed() {
-  console.log('[AUTO-LEADERBOARD] 5-minute periodic update check executed.');
+  console.log('[AUTO-LEADERBOARD] Periodic update executed.');
 }
 
 // ==========================================

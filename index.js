@@ -50,6 +50,7 @@ let db = {
     prefixes: [',', '?', '!'],
     quoteChannelId: '',
     clipsChannelId: '',
+    backupChannelId: '1555358918463594646', // Hardcoded backup channel
     staffRoleId: '',
     logChannelId: '',
     autoRoleId: '',
@@ -68,9 +69,11 @@ let db = {
 if (fs.existsSync(DB_FILE)) {
   try {
     db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-    // Ensure default prefixes array includes '!' if loaded from older database
+    // Ensure critical defaults exist if loaded from existing database file
+    if (!db.config) db.config = {};
     if (!db.config.prefixes) db.config.prefixes = [',', '?', '!'];
     if (!db.config.prefixes.includes('!')) db.config.prefixes.push('!');
+    if (!db.config.backupChannelId) db.config.backupChannelId = '1555358918463594646';
     console.log('Persistent database loaded successfully.');
   } catch (err) {
     console.error('Error reading database file, initializing fresh database:', err);
@@ -93,6 +96,28 @@ let currentMinigameAnswer = null;
 client.once('ready', () => {
   console.log(`[SYSTEM READY] Logged in as ${client.user.tag}`);
   setInterval(updateLeaderboardEmbed, 300000);
+
+  // ------------------------------------------
+  // AUTOMATED 15-MINUTE DATABASE BACKUP
+  // ------------------------------------------
+  setInterval(async () => {
+    if (!db.config.backupChannelId) return;
+
+    try {
+      const backupChannel = await client.channels.fetch(db.config.backupChannelId).catch(() => null);
+      if (!backupChannel) return;
+
+      if (fs.existsSync(DB_FILE)) {
+        await backupChannel.send({
+          content: '📦 **Automated 15-Minute Database Backup**\nDownload this file and copy its contents into `database.json` on GitHub before redeploying on Render.',
+          files: [{ attachment: DB_FILE, name: 'database.json' }]
+        });
+        console.log('[AUTO-BACKUP] Database backup sent to Discord.');
+      }
+    } catch (err) {
+      console.error('[AUTO-BACKUP ERROR]:', err);
+    }
+  }, 900000); // 15 minutes = 900,000 ms
 });
 
 // ==========================================
@@ -267,6 +292,22 @@ client.on('messageCreate', async (message) => {
   }
 
   // ------------------------------------------
+  // MANUAL BACKUP COMMAND
+  // ------------------------------------------
+  if (command === 'backup') {
+    if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) return;
+
+    if (!fs.existsSync(DB_FILE)) {
+      return message.reply('❌ Database file does not exist yet.');
+    }
+
+    return message.channel.send({
+      content: '📦 Here is your current `database.json` backup! Download this and paste its contents into GitHub.',
+      files: [{ attachment: DB_FILE, name: 'database.json' }]
+    }).catch(console.error);
+  }
+
+  // ------------------------------------------
   // HELP & ALL COMMANDS LIST
   // ------------------------------------------
   if (command === 'help' || command === 'commands') {
@@ -275,7 +316,7 @@ client.on('messageCreate', async (message) => {
       .setTitle('📜 Bot Command Center')
       .setDescription(`Current Prefixes: \`${db.config.prefixes.join('`, `')}\``)
       .addFields(
-        { name: '⚡ System', value: `\`${usedPrefix}ping\`` },
+        { name: '⚡ System', value: `\`${usedPrefix}ping\`\n\`${usedPrefix}backup\`` },
         { name: '🎮 Gaming & Ranks', value: `\`${usedPrefix}setrank <game> <rank>\`\n\`${usedPrefix}rank [@user]\`\n\`${usedPrefix}removerank <game>\`` },
         { name: '🛡️ Selfie & Rank Verification', value: `\`${usedPrefix}verify @user\` *(Selfie Verification)*\n\`${usedPrefix}verifyrank @user <game>\` *(Game Rank)*\n\`${usedPrefix}unverifyrank @user <game>\`` },
         { name: '💬 Chat Tools & Fun', value: `\`${usedPrefix}afk [reason]\`\n\`${usedPrefix}snipe\`\n\`${usedPrefix}coins [@user]\`\n\`${usedPrefix}quote [message]\`` },

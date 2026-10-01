@@ -76,4 +76,4 @@ client.on('messageCreate', async (message) => {
 });
 
 // Log in using environment variable
-client.login(process.env.DISCORD_TOKEN);
+client.login('MTU1NTA0MzExMDI0ODEyMDQxMA.G5Lv7l.Gd2nxKqnPqgEDCnBQH7LtMRYGyPmDMvR4YRmRs');

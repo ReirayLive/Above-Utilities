@@ -1,6 +1,7 @@
 const { 
   Client, GatewayIntentBits, Partials, EmbedBuilder, ActionRowBuilder, 
-  ButtonBuilder, ButtonStyle, PermissionsBitField, ChannelType, PermissionFlagsBits 
+  ButtonBuilder, ButtonStyle, PermissionsBitField, ChannelType, PermissionFlagsBits,
+  ModalBuilder, TextInputBuilder, TextInputStyle
 } = require('discord.js');
 const express = require('express');
 const fs = require('fs');
@@ -82,7 +83,6 @@ if (fs.existsSync(DB_FILE)) {
     db = { ...db, ...loadedData };
     if (!db.config) db.config = {};
     
-    // Ensure all hardcoded default IDs are set if missing from JSON
     db.config.prefixes = db.config.prefixes || [',', '?', '!'];
     db.config.quoteChannelId = db.config.quoteChannelId || '1555010046994415697';
     db.config.clipsChannelId = db.config.clipsChannelId || '1471595263100584006';
@@ -115,7 +115,6 @@ let currentMinigameAnswer = null;
 client.once('ready', () => {
   console.log(`[SYSTEM READY] Logged in as ${client.user.tag}`);
 
-  // 15-Minute Automated Backup Loop
   setInterval(async () => {
     if (!db.config.backupChannelId) return;
     try {
@@ -186,7 +185,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('vc_lock').setLabel('🔒 Lock').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId('vc_unlock').setLabel('🔓 Unlock').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('vc_hide').setLabel('👁️ Hide').setStyle(ButtonStyle.Danger)
+        new ButtonBuilder().setCustomId('vc_hide').setLabel('👁️️ Hide').setStyle(ButtonStyle.Danger)
       );
 
       await createdChannel.send({ embeds: [menuEmbed], components: [row] }).catch(console.error);
@@ -214,7 +213,6 @@ client.on('messageDelete', (message) => {
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
 
-  // Clips Auto-Reaction
   if (db.config.clipsChannelId && message.channel.id === db.config.clipsChannelId) {
     if (message.attachments.size > 0 || message.content.includes('http')) {
       await message.react('👍').catch(() => {});
@@ -222,7 +220,6 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // Sticky Message System
   if (db.stickyMessages[message.channel.id]) {
     const stickyText = db.stickyMessages[message.channel.id];
     const msgs = await message.channel.messages.fetch({ limit: 10 }).catch(() => null);
@@ -233,7 +230,6 @@ client.on('messageCreate', async (message) => {
     await message.channel.send(`📌 **Sticky Note:**\n${stickyText}`).catch(() => {});
   }
 
-  // AFK System
   if (db.afkUsers[message.author.id]) {
     delete db.afkUsers[message.author.id];
     saveDB();
@@ -248,7 +244,6 @@ client.on('messageCreate', async (message) => {
     });
   }
 
-  // Activity Coin System
   globalMessageCounter++;
   if (globalMessageCounter % 100 === 0) {
     db.userCoins[message.author.id] = (db.userCoins[message.author.id] || 0) + 10;
@@ -256,7 +251,6 @@ client.on('messageCreate', async (message) => {
     message.channel.send(`🎉 **100 Messages Hit!** <@${message.author.id}> earned **10 coins**!`).catch(() => {});
   }
 
-  // Math Minigame Spawn
   if (globalMessageCounter % 40 === 0 && !minigameActive) {
     minigameActive = true;
     const n1 = Math.floor(Math.random() * 30) + 1;
@@ -282,14 +276,12 @@ client.on('messageCreate', async (message) => {
     message.reply('🎉 Correct! You won **15 coins**!').catch(() => {});
   }
 
-  // Command Prefix Resolution
   const usedPrefix = db.config.prefixes.find(p => message.content.startsWith(p));
   if (!usedPrefix) return;
 
   const args = message.content.slice(usedPrefix.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
 
-  // SYSTEM COMMANDS
   if (command === 'ping') {
     const sent = await message.reply('🏓 Pinging...').catch(console.error);
     if (!sent) return;
@@ -322,7 +314,6 @@ client.on('messageCreate', async (message) => {
     return message.channel.send({ embeds: [helpEmbed] }).catch(() => {});
   }
 
-  // MODERATION: BAN & BAN REQUEST
   if (command === 'ban') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
       return message.reply('❌ You do not have permission to ban members.');
@@ -351,7 +342,7 @@ client.on('messageCreate', async (message) => {
         const reqEmbed = new EmbedBuilder()
           .setColor('#ED4245')
           .setTitle('🚨 Ban Request Submitted')
-          .setDescription(`Target User: <@${target.id}> (${target.tag})\nRequested By: <@${message.author.id}>\nReason: **${reason}**`)
+          .setDescription(`**Target User:** <@${target.id}> (${target.tag})\n**Requested By:** <@${message.author.id}>\n**Reason:** ${reason}`)
           .setTimestamp();
 
         const row = new ActionRowBuilder().addComponents(
@@ -366,7 +357,6 @@ client.on('messageCreate', async (message) => {
     return message.reply('⚠️ Ban request channel ID is not configured.');
   }
 
-  // MODERATION: TIMEOUT & UNTIMEOUT
   if (command === 'timeout' || command === 'mute') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
       return message.reply('❌ You do not have permission to timeout members.');
@@ -398,7 +388,6 @@ client.on('messageCreate', async (message) => {
     return message.channel.send(`🔊 Removed timeout for **${targetMember.user.tag}**.`);
   }
 
-  // MODERATION: ADD / REMOVE ROLE
   if (command === 'addrole' || command === 'role') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ManageRoles)) return;
     const targetMember = message.mentions.members.first();
@@ -427,7 +416,6 @@ client.on('messageCreate', async (message) => {
     return message.channel.send(`🗑️ Removed **${role.name}** from **${targetMember.user.tag}**.`);
   }
 
-  // WARNING MANAGEMENT
   if (command === 'warn') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) return;
     const target = message.mentions.members.first();
@@ -480,7 +468,6 @@ client.on('messageCreate', async (message) => {
     return message.reply(`🧹 Cleared all warnings for **${target.username}**.`);
   }
 
-  // GAME RANKS
   if (command === 'setrank' || command === 'rankset') {
     const game = args[0]?.toLowerCase();
     const rank = args.slice(1).join(' ');
@@ -519,7 +506,6 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // MANUAL VERIFY FALLBACK COMMAND
   if (command === 'verify') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) return;
     const targetMember = message.mentions.members.first();
@@ -560,7 +546,6 @@ client.on('messageCreate', async (message) => {
     return message.channel.send({ embeds: [rankEmbed] });
   }
 
-  // CHAT & TOOLS
   if (command === 'afk') {
     const reason = args.join(' ') || 'AFK';
     db.afkUsers[message.author.id] = reason;
@@ -623,7 +608,6 @@ client.on('messageCreate', async (message) => {
     return message.reply('Removed sticky message.');
   }
 
-  // PANELS & CONFIG
   if (command === 'sendticketpanel') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) return;
     const panelEmbed = new EmbedBuilder()
@@ -641,13 +625,16 @@ client.on('messageCreate', async (message) => {
     if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) return;
     const selfieEmbed = new EmbedBuilder()
       .setColor('#EB459E')
-      .setTitle('🤳 Identity Verification')
-      .setDescription('Click below to request verification access.');
+      .setTitle('🤳 Identity Verification Instructions')
+      .setDescription(
+        'To get verified, please post a photo in this channel following these instructions:\n\n' +
+        '1. Send a selfie with your **face fully in the picture**.\n' +
+        '2. Hold a paper showing our server name: `/above`.\n' +
+        '3. Include today\'s **date** and your **Discord username** on the paper.\n\n' +
+        'Staff will inspect your image and verify you shortly!'
+      );
 
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('open_selfie_verify').setLabel('Verify Me').setStyle(ButtonStyle.Success).setEmoji('📸')
-    );
-    return message.channel.send({ embeds: [selfieEmbed], components: [row] });
+    return message.channel.send({ embeds: [selfieEmbed] });
   }
 
   if (command === 'config') {
@@ -666,110 +653,111 @@ client.on('messageCreate', async (message) => {
 });
 
 // ==========================================
-// 7. BUTTON INTERACTION HANDLER
+// 7. INTERACTION HANDLER (BUTTONS & MODALS)
 // ==========================================
 client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isButton()) return;
 
-  // TICKET BUTTON
-  if (interaction.customId === 'open_ticket') {
-    const guild = interaction.guild;
-    const user = interaction.user;
-    const ticketChan = await guild.channels.create({
-      name: `ticket-${user.username.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
-      type: ChannelType.GuildText,
-      permissionOverwrites: [
-        { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-        { id: user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-      ],
-    }).catch(console.error);
+  // BUTTON HANDLING
+  if (interaction.isButton()) {
 
-    if (ticketChan) {
-      if (db.config.staffRoleId) ticketChan.send(`<@&${db.config.staffRoleId}> New ticket from <@${user.id}>!`).catch(() => {});
-      ticketChan.send(`Hello <@${user.id}>! Staff will be with you shortly.`).catch(() => {});
-      await interaction.reply({ content: `Ticket opened: ${ticketChan}`, ephemeral: true }).catch(() => {});
-    }
-  }
+    if (interaction.customId === 'open_ticket') {
+      const guild = interaction.guild;
+      const user = interaction.user;
+      const ticketChan = await guild.channels.create({
+        name: `ticket-${user.username.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+        type: ChannelType.GuildText,
+        permissionOverwrites: [
+          { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+          { id: user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+        ],
+      }).catch(console.error);
 
-  // SELFIE VERIFY REQUEST BUTTON
-  if (interaction.customId === 'open_selfie_verify') {
-    const user = interaction.user;
-    const vChan = interaction.guild.channels.cache.get(db.config.verificationLogChannelId);
-
-    if (vChan) {
-      const vEmbed = new EmbedBuilder()
-        .setColor('#EB459E')
-        .setTitle('📸 New Verification Request')
-        .setDescription(`Member: <@${user.id}> (${user.tag})\nRequested At: <t:${Math.floor(Date.now() / 1000)}:F>`)
-        .setThumbnail(user.displayAvatarURL());
-
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`selfie_approve_${user.id}`).setLabel('Approve Verification').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`selfie_deny_${user.id}`).setLabel('Deny Request').setStyle(ButtonStyle.Danger)
-      );
-
-      vChan.send({ embeds: [vEmbed], components: [row] }).catch(() => {});
-      await interaction.reply({ content: '✅ Verification request sent to staff!', ephemeral: true });
-    } else {
-      await interaction.reply({ content: '❌ Verification channel unavailable.', ephemeral: true });
-    }
-  }
-
-  // APPROVE / DENY SELFIE VERIFICATION
-  if (interaction.customId.startsWith('selfie_')) {
-    const parts = interaction.customId.split('_');
-    const action = parts[1];
-    const targetId = parts[2];
-
-    if (action === 'approve') {
-      const member = await interaction.guild.members.fetch(targetId).catch(() => null);
-      if (member && db.config.verifiedRoleId) {
-        await member.roles.add(db.config.verifiedRoleId).catch(console.error);
-        await interaction.update({ content: `✅ Verification approved for <@${targetId}>! Role granted.`, components: [] });
-      } else {
-        await interaction.update({ content: `❌ Could not find member or role.`, components: [] });
+      if (ticketChan) {
+        if (db.config.staffRoleId) ticketChan.send(`<@&${db.config.staffRoleId}> New ticket from <@${user.id}>!`).catch(() => {});
+        ticketChan.send(`Hello <@${user.id}>! Staff will be with you shortly.`).catch(() => {});
+        await interaction.reply({ content: `Ticket opened: ${ticketChan}`, ephemeral: true }).catch(() => {});
       }
-    } else {
-      await interaction.update({ content: `❌ Verification request denied for <@${targetId}>.`, components: [] });
     }
-  }
 
-  // APPROVE / DENY BAN REQUEST
-  if (interaction.customId.startsWith('req_')) {
-    const parts = interaction.customId.split('_');
-    const action = parts[1];
-    const targetId = parts[3];
+    // BAN REQUEST BUTTONS
+    if (interaction.customId.startsWith('req_')) {
+      const parts = interaction.customId.split('_');
+      const action = parts[1];
+      const targetId = parts[3];
 
-    if (action === 'approve') {
-      const member = await interaction.guild.members.fetch(targetId).catch(() => null);
-      if (member) {
-        await member.ban({ reason: 'Ban request approved by staff.' }).catch(console.error);
-        await interaction.update({ content: `🔨 Ban request approved. <@${targetId}> has been banned.`, components: [] });
-      } else {
-        await interaction.update({ content: `❌ Target member left or was not found.`, components: [] });
-      }
-    } else {
-      await interaction.update({ content: `❌ Ban request denied for <@${targetId}>.`, components: [] });
-    }
-  }
-
-  // APPROVE / DENY GAME RANK
-  if (interaction.customId.startsWith('verify_rank_')) {
-    const parts = interaction.customId.split('_');
-    const action = parts[2];
-    const targetId = parts[3];
-    const game = parts[4];
-
-    if (db.userRanks[targetId]?.[game]) {
       if (action === 'approve') {
-        db.userRanks[targetId][game].verified = true;
-        saveDB();
-        await interaction.update({ content: `✅ Rank approved for <@${targetId}> on **${game}**!`, components: [] });
-      } else {
-        delete db.userRanks[targetId][game];
-        saveDB();
-        await interaction.update({ content: `❌ Rank denied for <@${targetId}> on **${game}**.`, components: [] });
+        const member = await interaction.guild.members.fetch(targetId).catch(() => null);
+        
+        // Grab existing embed to preserve target info
+        const originalEmbed = interaction.message.embeds[0];
+        const updatedEmbed = EmbedBuilder.from(originalEmbed)
+          .setColor('#57F287')
+          .setTitle('🔨 Ban Request Approved')
+          .addFields({ name: 'Reviewed By', value: `<@${interaction.user.id}> (${interaction.user.tag})` });
+
+        if (member) {
+          await member.ban({ reason: `Ban request approved by ${interaction.user.tag}` }).catch(console.error);
+          await interaction.update({ embeds: [updatedEmbed], components: [] });
+        } else {
+          await interaction.update({ content: `❌ Target member left or was not found, but marked as approved by <@${interaction.user.id}>.`, embeds: [updatedEmbed], components: [] });
+        }
+      } else if (action === 'deny') {
+        // Open Modal to get denial reason
+        const modal = new ModalBuilder()
+          .setCustomId(`ban_deny_modal_${targetId}`)
+          .setTitle('Ban Request Denial');
+
+        const reasonInput = new TextInputBuilder()
+          .setCustomId('deny_reason')
+          .setLabel('Reason for Denying Ban Request')
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder('Provide a reason for denying this request...')
+          .setRequired(true);
+
+        const row = new ActionRowBuilder().addComponents(reasonInput);
+        modal.addComponents(row);
+
+        await interaction.showModal(modal);
       }
+    }
+
+    // GAME RANK APPROVAL
+    if (interaction.customId.startsWith('verify_rank_')) {
+      const parts = interaction.customId.split('_');
+      const action = parts[2];
+      const targetId = parts[3];
+      const game = parts[4];
+
+      if (db.userRanks[targetId]?.[game]) {
+        if (action === 'approve') {
+          db.userRanks[targetId][game].verified = true;
+          saveDB();
+          await interaction.update({ content: `✅ Rank approved for <@${targetId}> on **${game}** by <@${interaction.user.id}>!`, components: [] });
+        } else {
+          delete db.userRanks[targetId][game];
+          saveDB();
+          await interaction.update({ content: `❌ Rank denied for <@${targetId}> on **${game}** by <@${interaction.user.id}>.`, components: [] });
+        }
+      }
+    }
+  }
+
+  // MODAL SUBMISSION HANDLING
+  if (interaction.isModalSubmit()) {
+    if (interaction.customId.startsWith('ban_deny_modal_')) {
+      const targetId = interaction.customId.split('_')[3];
+      const denyReason = interaction.fields.getTextInputValue('deny_reason');
+
+      const originalEmbed = interaction.message.embeds[0];
+      const updatedEmbed = EmbedBuilder.from(originalEmbed)
+        .setColor('#ED4245')
+        .setTitle('❌ Ban Request Denied')
+        .addFields(
+          { name: 'Denied By', value: `<@${interaction.user.id}> (${interaction.user.tag})` },
+          { name: 'Denial Reason', value: denyReason }
+        );
+
+      await interaction.update({ embeds: [updatedEmbed], components: [] });
     }
   }
 });

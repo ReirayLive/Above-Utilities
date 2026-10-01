@@ -43,6 +43,7 @@ let db = {
     logChannelId: '',
     autoRoleId: '',
     topChatterRoleId: '',
+    verifiedRoleId: '', // Role given upon selfie verification (,verify @user)
     joinToCreateVcId: '',
   },
   userRanks: {},      
@@ -223,35 +224,134 @@ client.on('messageCreate', async (message) => {
   const args = message.content.slice(usedPrefix.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
 
-  if (command === 'setrank') {
+  // ------------------------------------------
+  // GAME RANK COMMAND (,setrank / ,rankset)
+  // ------------------------------------------
+  if (command === 'setrank' || command === 'rankset') {
     const game = args[0]?.toLowerCase();
     const rank = args.slice(1).join(' ');
 
     if (!game || !rank) return message.reply(`Usage: \`${usedPrefix}setrank <game> <rank>\``);
 
+    const topTierRanks = [
+      'predator', 'apex predator',                           // Apex
+      'radiant',                                            // Valorant
+      'top 500', 'grandmaster', 'champion',                // Overwatch & Siege & Fortnite
+      'supersonic legend', 'ssl',                           // Rocket League
+      'iridescent', 'top 250',                              // CoD / Warzone
+      'ruby', 'diamond 1', 'emerald 1',                    // The Finals / Smite
+      'unreal',                                             // Fortnite
+      'godlike', 'challenger',                              // Smite / Rivals
+      'immortal',                                           // Valorant / Smite
+      'heroic', 'legendary'                                 // General top ranks
+    ];
+
+    const isHighRank = topTierRanks.some(highRank => rank.toLowerCase().includes(highRank));
+
     if (!db.userRanks[message.author.id]) db.userRanks[message.author.id] = {};
-    db.userRanks[message.author.id][game] = { rank, verified: false };
-    saveDB();
 
-    if (db.config.logChannelId) {
-      const logChan = message.guild.channels.cache.get(db.config.logChannelId);
-      if (logChan) {
-        const verifyEmbed = new EmbedBuilder()
-          .setColor('#FEE75C')
-          .setTitle('🛡️ Rank Verification Pending')
-          .setDescription(`User: <@${message.author.id}>\nGame: **${game.toUpperCase()}**\nClaimed Rank: **${rank}**`)
-          .setFooter({ text: `User ID: ${message.author.id}` });
+    if (isHighRank) {
+      db.userRanks[message.author.id][game] = { rank, verified: false };
+      saveDB();
 
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`verify_approve_${message.author.id}_${game}`).setLabel('Approve').setStyle(ButtonStyle.Success),
-          new ButtonBuilder().setCustomId(`verify_deny_${message.author.id}_${game}`).setLabel('Deny').setStyle(ButtonStyle.Danger)
-        );
+      if (db.config.logChannelId) {
+        const logChan = message.guild.channels.cache.get(db.config.logChannelId);
+        if (logChan) {
+          const verifyEmbed = new EmbedBuilder()
+            .setColor('#FEE75C')
+            .setTitle('🛡️ Top Rank Verification Required')
+            .setDescription(`User: <@${message.author.id}>\nGame: **${game.toUpperCase()}**\nClaimed Rank: **${rank}**`)
+            .setFooter({ text: `User ID: ${message.author.id}` });
 
-        logChan.send({ embeds: [verifyEmbed], components: [row] });
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`verify_approve_${message.author.id}_${game}`).setLabel('Approve').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`verify_deny_${message.author.id}_${game}`).setLabel('Deny').setStyle(ButtonStyle.Danger)
+          );
+
+          logChan.send({ embeds: [verifyEmbed], components: [row] });
+        }
       }
+
+      return message.reply(`Your **${game.toUpperCase()}** rank (**${rank}**) is a top tier and has been sent to staff for verification!`);
+    } else {
+      db.userRanks[message.author.id][game] = { rank, verified: true };
+      saveDB();
+      return message.reply(`✅ Your **${game.toUpperCase()}** rank has been set to **${rank}**!`);
+    }
+  }
+
+  // ------------------------------------------
+  // SELFIE VERIFY COMMAND (,verify)
+  // ------------------------------------------
+  if (command === 'verify') {
+    if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
+      return message.reply('❌ You do not have permission to verify members.');
     }
 
-    return message.reply(`Your **${game.toUpperCase()}** rank request (**${rank}**) has been sent to staff for verification!`);
+    const targetMember = message.mentions.members.first();
+
+    if (!targetMember) {
+      return message.reply(`Usage: \`${usedPrefix}verify @user\``);
+    }
+
+    if (db.config.verifiedRoleId) {
+      const verifiedRole = message.guild.roles.cache.get(db.config.verifiedRoleId);
+      if (verifiedRole) {
+        await targetMember.roles.add(verifiedRole).catch(console.error);
+        return message.reply(`📸 Successfully verified **${targetMember.user.tag}** and added the **${verifiedRole.name}** role!`);
+      } else {
+        return message.reply(`⚠️ Verified role is configured as \`${db.config.verifiedRoleId}\`, but it was not found in this server.`);
+      }
+    } else {
+      return message.reply(`⚠️ Verified role ID is not set. Use \`${usedPrefix}config verifiedRoleId <roleID>\` to configure it.`);
+    }
+  }
+
+  // ------------------------------------------
+  // GAME RANK VERIFY COMMANDS (,verifyrank / ,unverifyrank)
+  // ------------------------------------------
+  if (command === 'verifyrank') {
+    if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
+      return message.reply('❌ You do not have permission to verify game ranks.');
+    }
+
+    const target = message.mentions.users.first();
+    const game = args[1]?.toLowerCase();
+
+    if (!target || !game) {
+      return message.reply(`Usage: \`${usedPrefix}verifyrank @user <game>\``);
+    }
+
+    if (!db.userRanks[target.id]?.[game]) {
+      return message.reply(`**${target.username}** has no recorded rank for **${game.toUpperCase()}**.`);
+    }
+
+    db.userRanks[target.id][game].verified = true;
+    saveDB();
+
+    return message.reply(`🎮 Successfully verified **${target.username}**'s rank for **${game.toUpperCase()}**!`);
+  }
+
+  if (command === 'unverifyrank') {
+    if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
+      return message.reply('❌ You do not have permission to unverify game ranks.');
+    }
+
+    const target = message.mentions.users.first();
+    const game = args[1]?.toLowerCase();
+
+    if (!target || !game) {
+      return message.reply(`Usage: \`${usedPrefix}unverifyrank @user <game>\``);
+    }
+
+    if (!db.userRanks[target.id]?.[game]) {
+      return message.reply(`**${target.username}** has no recorded rank for **${game.toUpperCase()}**.`);
+    }
+
+    db.userRanks[target.id][game].verified = false;
+    saveDB();
+
+    return message.reply(`⚠️ Unverified **${target.username}**'s rank for **${game.toUpperCase()}**.`);
   }
 
   if (command === 'removerank') {
@@ -295,7 +395,7 @@ client.on('messageCreate', async (message) => {
 
     const panelEmbed = new EmbedBuilder()
       .setColor('#57F287')
-      .setTitle('🎟️ Support Ticket Center')
+      .setTitle('🎟 Support Ticket Center')
       .setDescription('Need help or want to speak with staff? Click the button below to open a ticket.');
 
     const row = new ActionRowBuilder().addComponents(

@@ -47,7 +47,7 @@ const DB_FILE = path.join(__dirname, 'database.json');
 
 let db = {
   config: {
-    prefixes: [',', '?'],
+    prefixes: [',', '?', '!'],
     quoteChannelId: '',
     clipsChannelId: '',
     staffRoleId: '',
@@ -68,6 +68,9 @@ let db = {
 if (fs.existsSync(DB_FILE)) {
   try {
     db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    // Ensure default prefixes array includes '!' if loaded from older database
+    if (!db.config.prefixes) db.config.prefixes = [',', '?', '!'];
+    if (!db.config.prefixes.includes('!')) db.config.prefixes.push('!');
     console.log('Persistent database loaded successfully.');
   } catch (err) {
     console.error('Error reading database file, initializing fresh database:', err);
@@ -249,6 +252,21 @@ client.on('messageCreate', async (message) => {
   const command = args.shift().toLowerCase();
 
   // ------------------------------------------
+  // PING & SYSTEM STATUS
+  // ------------------------------------------
+  if (command === 'ping') {
+    const sent = await message.reply('🏓 Pinging...').catch(err => {
+      console.error('Failed to send ping reply:', err);
+    });
+    if (!sent) return;
+
+    const latency = sent.createdTimestamp - message.createdTimestamp;
+    const apiLatency = Math.round(client.ws.ping);
+
+    return sent.edit(`🏓 **Pong!**\nLatency: \`${latency}ms\` | API Latency: \`${apiLatency}ms\``).catch(console.error);
+  }
+
+  // ------------------------------------------
   // HELP & ALL COMMANDS LIST
   // ------------------------------------------
   if (command === 'help' || command === 'commands') {
@@ -257,6 +275,7 @@ client.on('messageCreate', async (message) => {
       .setTitle('📜 Bot Command Center')
       .setDescription(`Current Prefixes: \`${db.config.prefixes.join('`, `')}\``)
       .addFields(
+        { name: '⚡ System', value: `\`${usedPrefix}ping\`` },
         { name: '🎮 Gaming & Ranks', value: `\`${usedPrefix}setrank <game> <rank>\`\n\`${usedPrefix}rank [@user]\`\n\`${usedPrefix}removerank <game>\`` },
         { name: '🛡️ Selfie & Rank Verification', value: `\`${usedPrefix}verify @user\` *(Selfie Verification)*\n\`${usedPrefix}verifyrank @user <game>\` *(Game Rank)*\n\`${usedPrefix}unverifyrank @user <game>\`` },
         { name: '💬 Chat Tools & Fun', value: `\`${usedPrefix}afk [reason]\`\n\`${usedPrefix}snipe\`\n\`${usedPrefix}coins [@user]\`\n\`${usedPrefix}quote [message]\`` },
@@ -388,7 +407,7 @@ client.on('messageCreate', async (message) => {
     db.userRanks[target.id][game].verified = false;
     saveDB();
 
-    return message.reply(`⚠️️ Unverified **${target.username}**'s rank for **${game.toUpperCase()}**.`);
+    return message.reply(`⚠️ Unverified **${target.username}**'s rank for **${game.toUpperCase()}**.`);
   }
 
   if (command === 'removerank') {

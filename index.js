@@ -7,21 +7,61 @@ const express = require('express');
 const mongoose = require('mongoose');
 
 // ==========================================
-// 0. GLOBAL CRASH SHIELD
+// 0. GLOBAL CRASH SHIELD & TRACKERS
 // ==========================================
 process.on('unhandledRejection', (reason) => console.error('[Unhandled Rejection]:', reason));
 process.on('uncaughtException', (err, origin) => console.error('[Uncaught Exception]:', err, origin));
+
+const joinLog = [];
+const auditLogTracker = new Map();
 
 // ==========================================
 // 1. EXPRESS KEEP-ALIVE WEB SERVER
 // ==========================================
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('Bot Online 24/7'));
+app.get('/', (req, res) => res.send('Above Utilities Bot Online 24/7'));
 app.listen(PORT, () => console.log(`Web server listening on port ${PORT}`));
 
 // ==========================================
-// 2. MONGOOSE DATABASE SCHEMA & MODEL
+// 2. BATTLE ROYALE & GAME RANK ROLE MAPS
+// ==========================================
+// Maps game ranks to Discord Role IDs
+const GAME_ROLE_MAP = {
+  apex: {
+    'bronze': '1471595261787766996',
+    'silver': '1471595261787766997',
+    'gold': '1471595261787766998',
+    'platinum': '1471595261787766999',
+    'diamond': '1471595261787767000',
+    'master': '1471595261787767001',
+    'predator': '1471595261787767002'
+  },
+  valorant: {
+    'iron': '1471595261787766996',
+    'bronze': '1471595261787766997',
+    'silver': '1471595261787766998',
+    'gold': '1471595261787766999',
+    'platinum': '1471595261787767000',
+    'diamond': '1471595261787767001',
+    'ascendant': '1471595261787767002',
+    'immortal': '1471595261787767003',
+    'radiant': '1471595261787767004'
+  },
+  fortnite: {
+    'bronze': '1471595261787766996',
+    'silver': '1471595261787766997',
+    'gold': '1471595261787766998',
+    'platinum': '1471595261787766999',
+    'diamond': '1471595261787767000',
+    'elite': '1471595261787767001',
+    'champion': '1471595261787767002',
+    'unreal': '1471595261787767003'
+  }
+};
+
+// ==========================================
+// 3. MONGOOSE DATABASE SCHEMA
 // ==========================================
 const dbSchema = new mongoose.Schema({
   guildId: { type: String, required: true, unique: true },
@@ -31,7 +71,7 @@ const dbSchema = new mongoose.Schema({
     clipsChannelId: { type: String, default: '1471595263100584006' },
     topClipChannelId: { type: String, default: '1555385023895703794' },
     boostChannelId: { type: String, default: '1471610310686408969' },
-    selfiesChannelId: { type: String, default: '' }, // Set via ,config selfiesChannelId <id>
+    selfiesChannelId: { type: String, default: '1471595263545053401' },
     backupChannelId: { type: String, default: '1555358918463594646' },
     banRequestChannelId: { type: String, default: '1555028208913489990' },
     punishmentLogChannelId: { type: String, default: '1555364819433951242' },
@@ -44,6 +84,8 @@ const dbSchema = new mongoose.Schema({
     autoRoleId: { type: String, default: '1471604983706161334' },
     joinToCreateVcId: { type: String, default: '1554711771510480926' },
     mainChatId: { type: String, default: '' },
+    antiRaidEnabled: { type: Boolean, default: true },
+    antiNukeEnabled: { type: Boolean, default: true }
   },
   ticketCounter: { type: Number, default: 0 },
   userRanks: { type: Map, of: Object, default: {} },
@@ -76,7 +118,7 @@ if (process.env.MONGODB_URI) {
 }
 
 // ==========================================
-// 3. DISCORD CLIENT CONFIGURATION
+// 4. DISCORD CLIENT CONFIGURATION
 // ==========================================
 const client = new Client({
   intents: [
@@ -86,6 +128,7 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.GuildAuditLogs
   ],
   partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 });
@@ -109,7 +152,30 @@ client.once('ready', async () => {
   console.log(`[SYSTEM READY] Logged in as ${client.user.tag}`);
   await getDB();
   setupWeeklyTopClipScheduler();
+  setupDatabaseBackupLoop();
+  setupTicketAutoDeletionLoop();
 });
+
+// Helper: Assign Role from Rank Mappings
+async function syncRankRoles(member, game, rankName) {
+  const gameMap = GAME_ROLE_MAP[game.toLowerCase()];
+  if (!gameMap) return;
+
+  const key = rankName.toLowerCase().trim();
+  const targetRoleId = gameMap[key];
+
+  // Remove existing roles for this game category first
+  for (const roleId of Object.values(gameMap)) {
+    if (member.roles.cache.has(roleId)) {
+      await member.roles.remove(roleId).catch(() => {});
+    }
+  }
+
+  if (targetRoleId) {
+    const role = member.guild.roles.cache.get(targetRoleId);
+    if (role) await member.roles.add(role).catch(() => {});
+  }
+}
 
 // Helper: Transcripts
 async function sendTranscript(channel, label) {
@@ -132,23 +198,62 @@ async function sendTranscript(channel, label) {
   await logChan.send({ content: `📜 **${label} Transcript Logged:** \`${channel.name}\``, files: [attachment] }).catch(() => {});
 }
 
-// Helper: Punishment Logging
-async function logPunishment(guild, title, desc) {
+// Helper: Logging
+async function logServerEvent(guild, title, desc, color = '#ED4245') {
   const db = await getDB();
   if (!db.config.punishmentLogChannelId) return;
   const chan = guild.channels.cache.get(db.config.punishmentLogChannelId);
   if (!chan) return;
 
-  const embed = new EmbedBuilder().setColor('#ED4245').setTitle(title).setDescription(desc).setTimestamp();
+  const embed = new EmbedBuilder().setColor(color).setTitle(title).setDescription(desc).setTimestamp();
   chan.send({ embeds: [embed] }).catch(() => {});
 }
 
-// Helper: Weekly Top Clip Scheduler
+// Automated Database Backup Loop (Every 12 Hours)
+function setupDatabaseBackupLoop() {
+  setInterval(async () => {
+    const db = await getDB();
+    if (!db.config.backupChannelId) return;
+
+    for (const guild of client.guilds.cache.values()) {
+      const backupChan = guild.channels.cache.get(db.config.backupChannelId);
+      if (backupChan) {
+        const backupJson = JSON.stringify(db.toObject(), null, 2);
+        const buffer = Buffer.from(backupJson, 'utf-8');
+        const attachment = new AttachmentBuilder(buffer, { name: `db-backup-${Date.now()}.json` });
+        await backupChan.send({ content: '📦 **Automated Database Backup**', files: [attachment] }).catch(() => {});
+      }
+    }
+  }, 12 * 60 * 60 * 1000);
+}
+
+// Automated Ticket Auto-Deletion (Deletes tickets inactive for 48 hours)
+function setupTicketAutoDeletionLoop() {
+  setInterval(async () => {
+    const db = await getDB();
+    for (const guild of client.guilds.cache.values()) {
+      const ticketCategory = guild.channels.cache.get(db.config.ticketCategoryId);
+      if (!ticketCategory) continue;
+
+      const channels = guild.channels.cache.filter(c => c.parentId === db.config.ticketCategoryId && c.name.startsWith('ticket-'));
+      for (const [, channel] of channels) {
+        const lastMsg = (await channel.messages.fetch({ limit: 1 }).catch(() => null))?.first();
+        if (lastMsg && (Date.now() - lastMsg.createdTimestamp > 48 * 60 * 60 * 1000)) {
+          await sendTranscript(channel, 'Ticket (Auto-Deleted)');
+          await channel.send('🔒 Ticket auto-deleted due to 48 hours of inactivity.').catch(() => {});
+          setTimeout(() => channel.delete().catch(() => {}), 5000);
+        }
+      }
+    }
+  }, 60 * 60 * 1000);
+}
+
+// Weekly Top Clip Scheduler
 function setupWeeklyTopClipScheduler() {
   setInterval(async () => {
     const db = await getDB();
     const now = new Date();
-    if (now.getDay() === 0 && now.getHours() === 12 && now.getMinutes() === 0) { // Weekly Sunday Check
+    if (now.getDay() === 0 && now.getHours() === 12 && now.getMinutes() === 0) {
       for (const guild of client.guilds.cache.values()) {
         const clipsChan = guild.channels.cache.get(db.config.clipsChannelId);
         const announceChan = guild.channels.cache.get(db.config.topClipChannelId);
@@ -183,17 +288,31 @@ function setupWeeklyTopClipScheduler() {
 }
 
 // ==========================================
-// 4. MEMBER EVENTS & BOOST DETECTION
+// 5. MEMBER, BOOST & SECURITY EVENTS
 // ==========================================
 client.on('guildMemberAdd', async (member) => {
   const db = await getDB();
-  member.send(`Welcome to **${member.guild.name}**! Enjoy your stay.`).catch(() => {});
+
+  if (db.config.antiRaidEnabled) {
+    const now = Date.now();
+    joinLog.push(now);
+    const recentJoins = joinLog.filter(t => now - t < 10000);
+    if (recentJoins.length >= 10) {
+      logServerEvent(member.guild, '🚨 ANTI-RAID TRIGGERED', `High join rate detected (**${recentJoins.length} joins in 10s**)!`, '#ED4245');
+    }
+  }
+
+  member.send(`Welcome to **${member.guild.name}**! Use \`,setrank\` to assign your Battle Royale roles.`).catch(() => {});
 
   if (db.config.autoRoleId) {
     const role = member.guild.roles.cache.get(db.config.autoRoleId);
     if (role) member.roles.add(role).catch(console.error);
   }
-  logPunishment(member.guild, '📥 Member Joined', `User: <@${member.id}> (${member.user.tag})`);
+  logServerEvent(member.guild, '📥 Member Joined', `**User:** <@${member.id}> (${member.user.tag})\n**Account Created:** <t:${Math.floor(member.user.createdTimestamp / 1000)}:R>\n**Total Members:** ${member.guild.memberCount}`, '#57F287');
+});
+
+client.on('guildMemberRemove', async (member) => {
+  logServerEvent(member.guild, '📤 Member Left', `**User:** <@${member.id}> (${member.user.tag})\n**Total Members:** ${member.guild.memberCount}`, '#ED4245');
 });
 
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
@@ -201,20 +320,57 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
   const oldStatus = oldMember.premiumSince;
   const newStatus = newMember.premiumSince;
 
+  // Server Boost Prompt & BR Role Reward
   if (!oldStatus && newStatus) {
     const boostChan = newMember.guild.channels.cache.get(db.config.boostChannelId);
     if (boostChan) {
       const boostEmbed = new EmbedBuilder()
         .setColor('#F47FFF')
         .setTitle('🚀 Server Boosted!')
-        .setDescription(`Thank you so much <@${newMember.id}> for boosting and supporting the server!\n\nMake sure to claim and enjoy your **Battle Royale Roles**!`);
+        .setDescription(`Thank you <@${newMember.id}> for boosting the server!\n\n✨ **Booster Perk:** Claim your exclusive Battle Royale / Game roles by running \`,setrank <game> <rank>\`!`);
       boostChan.send({ embeds: [boostEmbed] }).catch(() => {});
+    }
+    logServerEvent(newMember.guild, '🚀 Server Boosted', `**Booster:** <@${newMember.id}> (${newMember.user.tag})`, '#F47FFF');
+  }
+});
+
+// Anti-Nuke
+client.on('channelDelete', async (channel) => {
+  if (!channel.guild) return;
+  const db = await getDB();
+  logServerEvent(channel.guild, '🗑️ Channel Deleted', `**Channel Name:** #${channel.name} (\`${channel.id}\`)`, '#ED4245');
+
+  if (db.config.antiNukeEnabled) {
+    const fetchedLogs = await channel.guild.fetchAuditLogs({ limit: 1, type: 12 }).catch(() => null);
+    const deletionLog = fetchedLogs?.entries.first();
+    if (deletionLog) {
+      const executorId = deletionLog.executor.id;
+      const userDeletions = (auditLogTracker.get(executorId) || 0) + 1;
+      auditLogTracker.set(executorId, userDeletions);
+
+      if (userDeletions >= 3) {
+        logServerEvent(channel.guild, '🚨 ANTI-NUKE TRIGGERED', `User <@${executorId}> deleted **${userDeletions} channels** rapidly!`, '#ED4245');
+      }
+      setTimeout(() => auditLogTracker.set(executorId, 0), 10000);
     }
   }
 });
 
+client.on('channelCreate', async (channel) => {
+  if (!channel.guild) return;
+  logServerEvent(channel.guild, '📁 Channel Created', `**Channel:** #${channel.name} (\`${channel.id}\`)`, '#5865F2');
+});
+
+client.on('roleCreate', async (role) => {
+  logServerEvent(role.guild, '🛡️ Role Created', `**Role:** ${role.name} (\`${role.id}\`)`, '#57F287');
+});
+
+client.on('roleDelete', async (role) => {
+  logServerEvent(role.guild, '❌ Role Deleted', `**Role Name:** ${role.name} (\`${role.id}\`)`, '#ED4245');
+});
+
 // ==========================================
-// 5. VOICE CHANNELS (JOIN TO CREATE)
+// 6. VOICE CHANNELS (JOIN TO CREATE)
 // ==========================================
 client.on('voiceStateUpdate', async (oldState, newState) => {
   const db = await getDB();
@@ -237,7 +393,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
       const menuEmbed = new EmbedBuilder()
         .setColor('#5865F2')
         .setTitle('🎙️ Voice Control Panel')
-        .setDescription('Manage your temporary voice channel using the buttons below or commands:\n• `,permit @user`\n• `,kick @user`');
+        .setDescription('Manage your temporary voice channel using buttons or commands:\n• `,permit @user`\n• `,kick @user`');
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('vc_lock').setLabel('🔒 Lock').setStyle(ButtonStyle.Secondary),
@@ -256,25 +412,33 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 });
 
 // ==========================================
-// 6. MESSAGE TRACKER, AUTOMOD & COMMANDS
+// 7. MESSAGES, AUTOMOD & COMMANDS
 // ==========================================
-client.on('messageDelete', (message) => {
-  if (message.author?.bot) return;
+client.on('messageDelete', async (message) => {
+  if (message.author?.bot || !message.guild) return;
+
   deletedMessages.set(message.channel.id, {
     content: message.content || 'Media/Embed Message',
     author: message.author,
     time: message.createdAt,
     image: message.attachments.first()?.proxyURL || null,
   });
+
+  logServerEvent(
+    message.guild, 
+    '💬 Message Deleted', 
+    `**Author:** <@${message.author.id}> (${message.author.tag})\n**Channel:** <#${message.channel.id}>\n**Content:** ${message.content || '*[Attachment/Embed]*'}`,
+    '#ED4245'
+  );
 });
 
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
   const db = await getDB();
 
-  // Selfies Channel Enforcement (Deletes plain text messages, adds crown to embeds/attachments)
+  // Selfies Channel Moderation
   if (db.config.selfiesChannelId && message.channel.id === db.config.selfiesChannelId) {
-    const hasMedia = message.attachments.size > 0 || message.embeds.length > 0;
+    const hasMedia = message.attachments.size > 0 || message.embeds.length > 0 || message.content.includes('http://') || message.content.includes('https://');
     if (!hasMedia) {
       await message.delete().catch(() => {});
       return;
@@ -283,7 +447,7 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // Clips Channel Enforcement
+  // Clips Channel Moderation
   if (db.config.clipsChannelId && message.channel.id === db.config.clipsChannelId) {
     const hasMedia = message.attachments.size > 0 || message.content.includes('http://') || message.content.includes('https://');
     if (!hasMedia) {
@@ -295,15 +459,15 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // Fixed Sticky Message System
+  // Pure Sticky Messages
   if (db.stickyMessages.get(message.channel.id)) {
     const stickyText = db.stickyMessages.get(message.channel.id);
     const msgs = await message.channel.messages.fetch({ limit: 5 }).catch(() => null);
     if (msgs) {
-      const lastSticky = msgs.find(m => m.author.id === client.user.id && m.content.startsWith('📌 **Sticky Note:**'));
+      const lastSticky = msgs.find(m => m.author.id === client.user.id && m.content === stickyText);
       if (lastSticky) await lastSticky.delete().catch(() => {});
     }
-    await message.channel.send(`📌 **Sticky Note:**\n${stickyText}`).catch(() => {});
+    await message.channel.send(stickyText).catch(() => {});
   }
 
   // AFK Check
@@ -369,38 +533,105 @@ client.on('messageCreate', async (message) => {
     const helpEmbed = new EmbedBuilder()
       .setColor('#5865F2')
       .setTitle('📚 Server Command List')
+      .setDescription('Here is a full list of available bot commands:')
       .addFields(
-        { name: '🛠 Moderation', value: '`,warn`, `,warnings`, `,timeout`, `,ban`, `,banrequest`, `,punishments`' },
-        { name: '🎮 Gaming Ranks', value: '`,setrank <game> <rank>`, `,rank [@user]`, `,removerank <game>`' },
-        { name: '💰 Economy & Fun', value: '`,bal`, `,coins`, `,afk`, `,s` / `,snipe`' },
-        { name: '🎙 Voice Chat', value: '`,permit @user`, `,kick @user`' },
-        { name: '📌 Utility', value: '`,sticky <text>`, `,unsticky`, `,selfie`, `,ticket`' }
+        { name: '🛠 Moderation', value: '`,warn @user <reason>`\n`,warnings [@user]`\n`,timeout @user <mins> [reason]`\n`,ban @user [reason]`\n`,banrequest @user <reason>`\n`,punishments [@user]`' },
+        { name: '🎮 Gaming & BR Roles', value: '`,setrank <game> <rank>`\n`,rank [@user]`\n`,removerank <game>`\n*Supported games: Apex, Valorant, Fortnite*' },
+        { name: '🪙 Economy & Activity', value: '`,bal [@user]` / `,coins`\n`,afk [reason]`\n`,snipe` / `,s`' },
+        { name: '🎙 Voice Chat', value: '`,permit @user`\n`,kick @user`' },
+        { name: '📌 Channel & Panels', value: '`,sticky <text>`\n`,unsticky`\n`,selfie` *(Deploy Selfie Panel)*\n`,ticket` *(Deploy Ticket Panel)*' },
+        { name: '⚙️ Admin', value: '`,config <key> <value>`\n`,ping`' }
       );
     return message.channel.send({ embeds: [helpEmbed] });
   }
 
-  // ECONOMY / BALANCE
-  if (command === 'bal' || command === 'balance' || command === 'coins') {
-    const target = message.mentions.users.first() || message.author;
-    const coins = db.userCoins.get(target.id) || 0;
-    return message.reply(`🪙 **${target.username}** currently has **${coins} coins**.`);
+  // SETRANK WITH AUTOMATED BR ROLE ASSIGNMENT
+  if (command === 'setrank') {
+    const game = args[0]?.toLowerCase();
+    const rank = args.slice(1).join(' ');
+    if (!game || !rank) return message.reply(`Usage: \`${usedPrefix}setrank <game> <rank>\` (e.g. \`,setrank apex gold\`)`);
+
+    const topTierRanks = ['predator', 'radiant', 'grandmaster', 'champion', 'ssl', 'iridescent', 'top 250', 'godlike', 'unreal'];
+    const isHighRank = topTierRanks.some(r => rank.toLowerCase().includes(r));
+    const userProfile = db.userRanks.get(message.author.id) || {};
+
+    if (isHighRank) {
+      userProfile[game] = { rank, verified: false };
+      db.userRanks.set(message.author.id, userProfile);
+      await saveDB();
+
+      if (db.config.verificationLogChannelId) {
+        const vChan = message.guild.channels.cache.get(db.config.verificationLogChannelId);
+        if (vChan) {
+          const verifyEmbed = new EmbedBuilder()
+            .setColor('#FEE75C')
+            .setTitle('🎮 Top Rank Verification Claim')
+            .setDescription(`User: <@${message.author.id}>\nGame: **${game.toUpperCase()}**\nClaimed Rank: **${rank}**`);
+
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`verify_rank_approve_${message.author.id}_${game}_${rank}`).setLabel('Approve Rank & Assign Role').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`verify_rank_deny_${message.author.id}_${game}`).setLabel('Deny Rank').setStyle(ButtonStyle.Danger)
+          );
+          vChan.send({ embeds: [verifyEmbed], components: [row] }).catch(() => {});
+        }
+      }
+      return message.reply(`⚠️ **${rank}** requires verification! **Please open a support ticket** and send screenshot proof so staff can verify and assign your role.`);
+    } else {
+      userProfile[game] = { rank, verified: true };
+      db.userRanks.set(message.author.id, userProfile);
+      await saveDB();
+
+      // Automatically sync Battle Royale role
+      await syncRankRoles(message.member, game, rank);
+
+      return message.reply(`✅ Your **${game.toUpperCase()}** rank has been saved as **${rank}** and your Battle Royale role has been updated!`);
+    }
   }
 
-  // RANK REMOVAL
-  if (command === 'removerank' || command === 'delrank' || command === 'deleterank') {
+  if (command === 'removerank' || command === 'delrank') {
     const game = args[0]?.toLowerCase();
     if (!game) return message.reply('Usage: `,removerank <game>`');
 
     const profile = db.userRanks.get(message.author.id);
     if (!profile || !profile[game]) return message.reply(`❌ You do not have a rank saved for **${game.toUpperCase()}**.`);
 
+    const oldRank = profile[game].rank;
     delete profile[game];
     db.userRanks.set(message.author.id, profile);
     await saveDB();
-    return message.reply(`✅ Removed your rank for **${game.toUpperCase()}**.`);
+
+    // Remove Discord Role
+    const gameMap = GAME_ROLE_MAP[game];
+    if (gameMap) {
+      for (const roleId of Object.values(gameMap)) {
+        if (message.member.roles.cache.has(roleId)) await message.member.roles.remove(roleId).catch(() => {});
+      }
+    }
+
+    return message.reply(`✅ Removed your **${game.toUpperCase()}** rank and associated role.`);
   }
 
-  // STICKY / UNSTICKY
+  if (command === 'rank') {
+    const target = message.mentions.users.first() || message.author;
+    const profile = db.userRanks.get(target.id);
+
+    if (!profile || Object.keys(profile).length === 0) return message.reply(`**${target.username}** has no saved game ranks.`);
+
+    const rankEmbed = new EmbedBuilder().setColor('#5865F2').setTitle(`🎮 Game Ranks — ${target.username}`).setThumbnail(target.displayAvatarURL({ dynamic: true }));
+    for (const [game, data] of Object.entries(profile)) {
+      const statusBadge = data.verified ? '✅' : '⏳ *(Pending Proof)*';
+      rankEmbed.addFields({ name: game.toUpperCase(), value: `\`${data.rank}\` ${statusBadge}`, inline: true });
+    }
+    return message.channel.send({ embeds: [rankEmbed] });
+  }
+
+  // ECONOMY, MODERATION & UTILITY
+  if (command === 'bal' || command === 'balance' || command === 'coins') {
+    const target = message.mentions.users.first() || message.author;
+    const coins = db.userCoins.get(target.id) || 0;
+    return message.reply(`🪙 **${target.username}** currently has **${coins} coins**.`);
+  }
+
   if (command === 'sticky') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) return;
     const text = args.join(' ');
@@ -409,17 +640,16 @@ client.on('messageCreate', async (message) => {
     db.stickyMessages.set(message.channel.id, text);
     await saveDB();
     message.delete().catch(() => {});
-    return message.channel.send(`📌 **Sticky Note:**\n${text}`);
+    return message.channel.send(text);
   }
 
   if (command === 'unsticky') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) return;
     db.stickyMessages.delete(message.channel.id);
     await saveDB();
-    return message.reply('✅ Removed sticky note from this channel.');
+    return message.reply('✅ Removed sticky note.');
   }
 
-  // MODERATION COMMANDS
   if (command === 'warn') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) return;
     const target = message.mentions.members.first();
@@ -431,8 +661,8 @@ client.on('messageCreate', async (message) => {
     db.warnings.set(target.id, userWarns);
     await saveDB();
 
-    logPunishment(message.guild, '⚠️ Member Warned', `User: <@${target.id}>\nModerator: <@${message.author.id}>\nReason:${reason}`);
-    return message.reply(`⚠️ Warned <@${target.id}> for: *${reason}*`);
+    logServerEvent(message.guild, '⚠️ Member Warned', `**User:** <@${target.id}>\n**Moderator:** <@${message.author.id}>\n**Reason:** ${reason}`);
+    return message.reply(`⚠️️ Warned <@${target.id}> for: *${reason}*`);
   }
 
   if (command === 'warnings') {
@@ -440,7 +670,7 @@ client.on('messageCreate', async (message) => {
     const userWarns = db.warnings.get(target.id) || [];
     if (userWarns.length === 0) return message.reply(`**${target.username}** has 0 warnings.`);
 
-    const warnEmbed = new EmbedBuilder().setColor('#FEE75C').setTitle(`⚠️ Warning Log — ${target.username}`);
+    const warnEmbed = new EmbedBuilder().setColor('#FEE75C').setTitle(`⚠ Warning Log — ${target.username}`);
     userWarns.forEach((w, idx) => warnEmbed.addFields({ name: `Warning #${idx + 1}`, value: `**Reason:** ${w.reason}\n**By:** ${w.moderator} (${w.date})` }));
     return message.channel.send({ embeds: [warnEmbed] });
   }
@@ -453,7 +683,7 @@ client.on('messageCreate', async (message) => {
     if (!target || isNaN(durationMins)) return message.reply('Usage: `,timeout @user <minutes> [reason]`');
 
     await target.timeout(durationMins * 60 * 1000, reason).catch(() => {});
-    logPunishment(message.guild, '⏳ Member Timed Out', `User: <@${target.id}>\nDuration: ${durationMins}m\nReason:${reason}`);
+    logServerEvent(message.guild, '⏳ Member Timed Out', `**User:** <@${target.id}>\n**Duration:** ${durationMins}m\n**Reason:** ${reason}`);
     return message.reply(`⏳ Timed out <@${target.id}> for **${durationMins} minutes**.`);
   }
 
@@ -464,7 +694,7 @@ client.on('messageCreate', async (message) => {
     if (!target) return message.reply('Usage: `,ban @user [reason]`');
 
     await target.ban({ reason }).catch(() => {});
-    logPunishment(message.guild, '🔨 Member Banned', `User: <@${target.id}>\nModerator: <@${message.author.id}>\nReason:${reason}`);
+    logServerEvent(message.guild, '🔨 Member Banned', `**User:** <@${target.id}>\n**Moderator:** <@${message.author.id}>\n**Reason:** ${reason}`);
     return message.reply(`🔨 Banned <@${target.id}>.`);
   }
 
@@ -493,17 +723,6 @@ client.on('messageCreate', async (message) => {
     return message.channel.send(`✅ Ban request submitted for <@${target.id}>.`);
   }
 
-  if (command === 'punishments') {
-    const target = message.mentions.users.first() || message.author;
-    const userLogs = db.punishments.get(target.id) || [];
-    if (userLogs.length === 0) return message.reply(`No punishment records found for **${target.username}**.`);
-
-    const pEmbed = new EmbedBuilder().setColor('#ED4245').setTitle(`📜 Punishment History — ${target.username}`);
-    userLogs.forEach((p, idx) => pEmbed.addFields({ name: `Log #${idx + 1}`, value: `**Type:** ${p.type}\n**Reason:** ${p.reason}` }));
-    return message.channel.send({ embeds: [pEmbed] });
-  }
-
-  // VOICE CONTROLS
   if (command === 'permit') {
     if (!message.member.voice.channel || !message.member.voice.channel.name.startsWith('🔊 ')) return message.reply('❌ Must be in your temp voice room.');
     const target = message.mentions.members.first();
@@ -553,58 +772,6 @@ client.on('messageCreate', async (message) => {
     return message.channel.send({ embeds: [panelEmbed], components: [row] });
   }
 
-  if (command === 'setrank') {
-    const game = args[0]?.toLowerCase();
-    const rank = args.slice(1).join(' ');
-    if (!game || !rank) return message.reply(`Usage: \`${usedPrefix}setrank <game> <rank>\``);
-
-    const topTierRanks = ['predator', 'radiant', 'grandmaster', 'champion', 'ssl', 'iridescent', 'top 250', 'godlike', 'unreal'];
-    const isHighRank = topTierRanks.some(r => rank.toLowerCase().includes(r));
-    const userProfile = db.userRanks.get(message.author.id) || {};
-
-    if (isHighRank) {
-      userProfile[game] = { rank, verified: false };
-      db.userRanks.set(message.author.id, userProfile);
-      await saveDB();
-
-      if (db.config.verificationLogChannelId) {
-        const vChan = message.guild.channels.cache.get(db.config.verificationLogChannelId);
-        if (vChan) {
-          const verifyEmbed = new EmbedBuilder()
-            .setColor('#FEE75C')
-            .setTitle('🎮 Top Rank Verification Claim')
-            .setDescription(`User: <@${message.author.id}>\nGame: **${game.toUpperCase()}**\nClaimed Rank: **${rank}**`);
-
-          const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`verify_rank_approve_${message.author.id}_${game}`).setLabel('Approve Rank').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId(`verify_rank_deny_${message.author.id}_${game}`).setLabel('Deny Rank').setStyle(ButtonStyle.Danger)
-          );
-          vChan.send({ embeds: [verifyEmbed], components: [row] }).catch(() => {});
-        }
-      }
-      return message.reply(`⚠️ **${rank}** requires verification! **Please open a support ticket** and send screenshot proof to staff so we can verify your rank.`);
-    } else {
-      userProfile[game] = { rank, verified: true };
-      db.userRanks.set(message.author.id, userProfile);
-      await saveDB();
-      return message.reply(`✅ Your **${game.toUpperCase()}** rank has been saved as **${rank}**!`);
-    }
-  }
-
-  if (command === 'rank') {
-    const target = message.mentions.users.first() || message.author;
-    const profile = db.userRanks.get(target.id);
-
-    if (!profile || Object.keys(profile).length === 0) return message.reply(`**${target.username}** has no saved game ranks.`);
-
-    const rankEmbed = new EmbedBuilder().setColor('#5865F2').setTitle(`🎮 Game Ranks — ${target.username}`).setThumbnail(target.displayAvatarURL({ dynamic: true }));
-    for (const [game, data] of Object.entries(profile)) {
-      const statusBadge = data.verified ? '✅' : '⏳ *(Pending Proof)*';
-      rankEmbed.addFields({ name: game.toUpperCase(), value: `\`${data.rank}\` ${statusBadge}`, inline: true });
-    }
-    return message.channel.send({ embeds: [rankEmbed] });
-  }
-
   if (command === 'snipe' || command === 's') {
     const sniped = deletedMessages.get(message.channel.id);
     if (!sniped) return message.reply('There is nothing to snipe!');
@@ -641,7 +808,7 @@ client.on('messageCreate', async (message) => {
 });
 
 // ==========================================
-// 7. BUTTONS, MODALS & TICKET SYSTEM
+// 8. BUTTONS, MODALS & TICKET SYSTEM
 // ==========================================
 client.on('interactionCreate', async (interaction) => {
   const db = await getDB();
@@ -735,26 +902,68 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.reply(`🚪 Ticket unclaimed by <@${interaction.user.id}>.`);
       }
     }
+
+    // RANK VERIFICATION APPROVAL BUTTONS WITH BR ROLE SYNC
+    if (interaction.customId.startsWith('verify_rank_approve_')) {
+      const parts = interaction.customId.split('_');
+      const userId = parts[3];
+      const game = parts[4];
+      const rank = parts[5];
+
+      const profile = db.userRanks.get(userId);
+      if (profile && profile[game]) {
+        profile[game].verified = true;
+        db.userRanks.set(userId, profile);
+        await saveDB();
+
+        const member = await interaction.guild.members.fetch(userId).catch(() => null);
+        if (member) await syncRankRoles(member, game, rank);
+
+        await interaction.reply(`✅ Approved **${game.toUpperCase()}** rank for <@${userId}> and assigned the corresponding role.`);
+      }
+    }
+
+    if (interaction.customId.startsWith('verify_rank_deny_')) {
+      const parts = interaction.customId.split('_');
+      const userId = parts[3];
+      const game = parts[4];
+
+      const profile = db.userRanks.get(userId);
+      if (profile && profile[game]) {
+        delete profile[game];
+        db.userRanks.set(userId, profile);
+        await saveDB();
+        await interaction.reply(`❌ Denied and removed **${game.toUpperCase()}** rank claim for <@${userId}>.`);
+      }
+    }
   }
 
-  // MODAL SUBMISSIONS FOR TICKET ACCESS
+  // MODAL SUBMISSIONS
   if (interaction.isModalSubmit()) {
     if (interaction.customId === 'modal_add_member') {
-      const memberId = interaction.fields.getTextInputValue('member_id');
-      await interaction.channel.permissionOverwrites.edit(memberId, { ViewChannel: true, SendMessages: true }).catch(() => {});
-      return interaction.reply({ content: `✅ Added <@${memberId}> to the ticket.`, ephemeral: true });
+      const memberId = interaction.fields.getTextInputValue('member_id').trim();
+      const targetMember = await interaction.guild.members.fetch(memberId).catch(() => null);
+
+      if (!targetMember) return interaction.reply({ content: '❌ Invalid Member ID or user is not in this server.', ephemeral: true });
+
+      await interaction.channel.permissionOverwrites.edit(targetMember.id, { ViewChannel: true, SendMessages: true }).catch(console.error);
+      return interaction.reply({ content: `✅ Added <@${targetMember.id}> to the ticket.`, ephemeral: true });
     }
 
     if (interaction.customId === 'modal_remove_member') {
-      const memberId = interaction.fields.getTextInputValue('member_id');
-      await interaction.channel.permissionOverwrites.edit(memberId, { ViewChannel: false }).catch(() => {});
-      return interaction.reply({ content: `⛔ Removed <@${memberId}> from the ticket.`, ephemeral: true });
+      const memberId = interaction.fields.getTextInputValue('member_id').trim();
+      const targetMember = await interaction.guild.members.fetch(memberId).catch(() => null);
+
+      if (!targetMember) return interaction.reply({ content: '❌ Invalid Member ID or user is not in this server.', ephemeral: true });
+
+      await interaction.channel.permissionOverwrites.edit(targetMember.id, { ViewChannel: false }).catch(console.error);
+      return interaction.reply({ content: `⛔ Removed <@${targetMember.id}> from the ticket.`, ephemeral: true });
     }
   }
 });
 
 // ==========================================
-// 8. LOGIN
+// 9. LOGIN
 // ==========================================
 if (!process.env.DISCORD_TOKEN) {
   console.error('DISCORD_TOKEN env variable missing!');

@@ -26,7 +26,6 @@ app.listen(PORT, () => console.log(`Web server listening on port ${PORT}`));
 // ==========================================
 // 2. BATTLE ROYALE & GAME RANK ROLE MAPS
 // ==========================================
-// Maps game ranks to Discord Role IDs
 const GAME_ROLE_MAP = {
   apex: {
     'bronze': '1471595261787766996',
@@ -164,7 +163,6 @@ async function syncRankRoles(member, game, rankName) {
   const key = rankName.toLowerCase().trim();
   const targetRoleId = gameMap[key];
 
-  // Remove existing roles for this game category first
   for (const roleId of Object.values(gameMap)) {
     if (member.roles.cache.has(roleId)) {
       await member.roles.remove(roleId).catch(() => {});
@@ -320,7 +318,6 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
   const oldStatus = oldMember.premiumSince;
   const newStatus = newMember.premiumSince;
 
-  // Server Boost Prompt & BR Role Reward
   if (!oldStatus && newStatus) {
     const boostChan = newMember.guild.channels.cache.get(db.config.boostChannelId);
     if (boostChan) {
@@ -545,7 +542,7 @@ client.on('messageCreate', async (message) => {
     return message.channel.send({ embeds: [helpEmbed] });
   }
 
-  // SETRANK WITH AUTOMATED BR ROLE ASSIGNMENT
+  // SETRANK
   if (command === 'setrank') {
     const game = args[0]?.toLowerCase();
     const rank = args.slice(1).join(' ');
@@ -581,7 +578,6 @@ client.on('messageCreate', async (message) => {
       db.userRanks.set(message.author.id, userProfile);
       await saveDB();
 
-      // Automatically sync Battle Royale role
       await syncRankRoles(message.member, game, rank);
 
       return message.reply(`✅ Your **${game.toUpperCase()}** rank has been saved as **${rank}** and your Battle Royale role has been updated!`);
@@ -595,12 +591,10 @@ client.on('messageCreate', async (message) => {
     const profile = db.userRanks.get(message.author.id);
     if (!profile || !profile[game]) return message.reply(`❌ You do not have a rank saved for **${game.toUpperCase()}**.`);
 
-    const oldRank = profile[game].rank;
     delete profile[game];
     db.userRanks.set(message.author.id, profile);
     await saveDB();
 
-    // Remove Discord Role
     const gameMap = GAME_ROLE_MAP[game];
     if (gameMap) {
       for (const roleId of Object.values(gameMap)) {
@@ -625,7 +619,6 @@ client.on('messageCreate', async (message) => {
     return message.channel.send({ embeds: [rankEmbed] });
   }
 
-  // ECONOMY, MODERATION & UTILITY
   if (command === 'bal' || command === 'balance' || command === 'coins') {
     const target = message.mentions.users.first() || message.author;
     const coins = db.userCoins.get(target.id) || 0;
@@ -662,7 +655,7 @@ client.on('messageCreate', async (message) => {
     await saveDB();
 
     logServerEvent(message.guild, '⚠️ Member Warned', `**User:** <@${target.id}>\n**Moderator:** <@${message.author.id}>\n**Reason:** ${reason}`);
-    return message.reply(`⚠️️ Warned <@${target.id}> for: *${reason}*`);
+    return message.reply(`⚠️ Warned <@${target.id}> for: *${reason}*`);
   }
 
   if (command === 'warnings') {
@@ -670,7 +663,7 @@ client.on('messageCreate', async (message) => {
     const userWarns = db.warnings.get(target.id) || [];
     if (userWarns.length === 0) return message.reply(`**${target.username}** has 0 warnings.`);
 
-    const warnEmbed = new EmbedBuilder().setColor('#FEE75C').setTitle(`⚠ Warning Log — ${target.username}`);
+    const warnEmbed = new EmbedBuilder().setColor('#FEE75C').setTitle(`⚠️ Warning Log — ${target.username}`);
     userWarns.forEach((w, idx) => warnEmbed.addFields({ name: `Warning #${idx + 1}`, value: `**Reason:** ${w.reason}\n**By:** ${w.moderator} (${w.date})` }));
     return message.channel.send({ embeds: [warnEmbed] });
   }
@@ -808,7 +801,7 @@ client.on('messageCreate', async (message) => {
 });
 
 // ==========================================
-// 8. BUTTONS, MODALS & TICKET SYSTEM
+// 8. BUTTONS, MODALS & INTERACTION HANDLER
 // ==========================================
 client.on('interactionCreate', async (interaction) => {
   const db = await getDB();
@@ -903,7 +896,6 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
-    // RANK VERIFICATION APPROVAL BUTTONS WITH BR ROLE SYNC
     if (interaction.customId.startsWith('verify_rank_approve_')) {
       const parts = interaction.customId.split('_');
       const userId = parts[3];
@@ -938,7 +930,6 @@ client.on('interactionCreate', async (interaction) => {
     }
   }
 
-  // MODAL SUBMISSIONS
   if (interaction.isModalSubmit()) {
     if (interaction.customId === 'modal_add_member') {
       const memberId = interaction.fields.getTextInputValue('member_id').trim();

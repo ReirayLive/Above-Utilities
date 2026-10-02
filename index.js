@@ -313,10 +313,11 @@ client.on('messageCreate', async (message) => {
         );
 
         banReqChan.send({ embeds: [reqEmbed], components: [row] }).catch(() => {});
-        return message.reply(`✅ Ban request submitted to the ban request log for **${target.tag}**.`);
+        message.delete().catch(() => {});
+        return message.channel.send(`✅ Ban request submitted to the ban request log for **${target.tag}**.`);
       }
     }
-    return message.reply('⚠️ Ban request channel ID is not configured.');
+    return message.reply('⚠️️ Ban request channel ID is not configured.');
   }
 
   if (command === 'warn') {
@@ -397,7 +398,8 @@ client.on('messageCreate', async (message) => {
       const verifiedRole = message.guild.roles.cache.get(db.config.verifiedRoleId);
       if (verifiedRole) {
         await targetMember.roles.add(verifiedRole).catch(console.error);
-        return message.reply(`📸 Verified **${targetMember.user.tag}** and added **${verifiedRole.name}**!`);
+        message.delete().catch(() => {});
+        return message.channel.send(`📸 Verified **${targetMember.user.tag}** and added **${verifiedRole.name}**!`);
       }
     }
     return message.reply('⚠️ Verified Role ID not properly configured.');
@@ -461,6 +463,7 @@ client.on('messageCreate', async (message) => {
 
     db.stickyMessages.set(message.channel.id, stickyText);
     await saveDB();
+    message.delete().catch(() => {});
     return message.channel.send(`📌 **Sticky Note Set:**\n${stickyText}`);
   }
 
@@ -468,11 +471,13 @@ client.on('messageCreate', async (message) => {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) return;
     db.stickyMessages.delete(message.channel.id);
     await saveDB();
-    return message.reply('Removed sticky message.');
+    message.delete().catch(() => {});
+    return message.channel.send('Removed sticky message.');
   }
 
   if (command === 'sendticketpanel') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) return;
+    message.delete().catch(() => {});
     const panelEmbed = new EmbedBuilder()
       .setColor('#57F287')
       .setTitle('🎟 Support Ticket Center')
@@ -486,6 +491,7 @@ client.on('messageCreate', async (message) => {
 
   if (command === 'sendselfiepanel') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) return;
+    message.delete().catch(() => {});
     const selfieEmbed = new EmbedBuilder()
       .setColor('#EB459E')
       .setTitle('🤳 Identity Verification Instructions')
@@ -511,7 +517,8 @@ client.on('messageCreate', async (message) => {
 
     db.config[key] = val;
     await saveDB();
-    return message.reply(`✅ Setting **${key}** updated to \`${val}\`.`);
+    message.delete().catch(() => {});
+    return message.channel.send(`✅ Setting **${key}** updated to \`${val}\`.`);
   }
 });
 
@@ -522,25 +529,131 @@ client.on('interactionCreate', async (interaction) => {
   const db = await getDB();
 
   if (interaction.isButton()) {
+    // TICKET CREATION
     if (interaction.customId === 'open_ticket') {
       const guild = interaction.guild;
       const user = interaction.user;
+      
+      const permissions = [
+        { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+        { id: user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+      ];
+
+      if (db.config.staffRoleId) {
+        permissions.push({ id: db.config.staffRoleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] });
+      }
+
       const ticketChan = await guild.channels.create({
         name: `ticket-${user.username.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
         type: ChannelType.GuildText,
-        permissionOverwrites: [
-          { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-          { id: user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-        ],
+        permissionOverwrites: permissions,
       }).catch(console.error);
 
       if (ticketChan) {
         if (db.config.staffRoleId) ticketChan.send(`<@&${db.config.staffRoleId}> New ticket from <@${user.id}>!`).catch(() => {});
-        ticketChan.send(`Hello <@${user.id}>! Staff will be with you shortly.`).catch(() => {});
+        
+        const controlEmbed = new EmbedBuilder()
+          .setColor('#5865F2')
+          .setTitle('⚙️ Ticket Management Panel')
+          .setDescription(`Welcome <@${user.id}>! Staff will be with you shortly.\n\n**Owner/Admin Controls below:**`);
+
+        const row1 = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('ticket_close').setLabel('Close').setStyle(ButtonStyle.Danger).setEmoji('🔒'),
+          new ButtonBuilder().setCustomId('ticket_claim').setLabel('Claim').setStyle(ButtonStyle.Success).setEmoji('🙋'),
+          new ButtonBuilder().setCustomId('ticket_unclaim').setLabel('Unclaim').setStyle(ButtonStyle.Secondary).setEmoji('🚪'),
+          new ButtonBuilder().setCustomId('ticket_hide').setLabel('Hide').setStyle(ButtonStyle.Primary).setEmoji('🙈')
+        );
+
+        const row2 = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('ticket_add_member').setLabel('Add Member').setStyle(ButtonStyle.Secondary).setEmoji('➕'),
+          new ButtonBuilder().setCustomId('ticket_remove_member').setLabel('Remove Member').setStyle(ButtonStyle.Secondary).setEmoji('➖')
+        );
+
+        await ticketChan.send({ embeds: [controlEmbed], components: [row1, row2] }).catch(console.error);
         await interaction.reply({ content: `Ticket opened: ${ticketChan}`, ephemeral: true }).catch(() => {});
       }
     }
 
+    // TICKET ADMIN CONTROLS
+    if (interaction.customId.startsWith('ticket_')) {
+      const isOwnerOrAdmin = interaction.user.id === interaction.guild.ownerId || interaction.member.permissions.has(PermissionsBitField.Flags.Administrator);
+
+      if (interaction.customId === 'ticket_close') {
+        if (!isOwnerOrAdmin) {
+          return interaction.reply({ content: '❌ Only Server Owners/Admins can close tickets.', ephemeral: true });
+        }
+        await interaction.reply('🔒 Closing and deleting ticket in 5 seconds...');
+        setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
+      }
+
+      if (interaction.customId === 'ticket_claim') {
+        if (!isOwnerOrAdmin) {
+          return interaction.reply({ content: '❌ Only Server Owners/Admins can claim tickets.', ephemeral: true });
+        }
+        await interaction.reply(`🙋 Ticket claimed by <@${interaction.user.id}>!`);
+      }
+
+      if (interaction.customId === 'ticket_unclaim') {
+        if (!isOwnerOrAdmin) {
+          return interaction.reply({ content: '❌ Only Server Owners/Admins can unclaim tickets.', ephemeral: true });
+        }
+        await interaction.reply(`🚪 Ticket unclaimed by <@${interaction.user.id}>.`);
+      }
+
+      if (interaction.customId === 'ticket_hide') {
+        if (!isOwnerOrAdmin) {
+          return interaction.reply({ content: '❌ Only Server Owners/Admins can hide tickets.', ephemeral: true });
+        }
+
+        if (db.config.staffRoleId) {
+          await interaction.channel.permissionOverwrites.edit(db.config.staffRoleId, {
+            ViewChannel: false
+          }).catch(console.error);
+        }
+
+        await interaction.reply('🙈 Ticket hidden! Non-admin staff can no longer view this channel.');
+      }
+
+      if (interaction.customId === 'ticket_add_member') {
+        if (!isOwnerOrAdmin) {
+          return interaction.reply({ content: '❌ Only Server Owners/Admins can manage ticket members.', ephemeral: true });
+        }
+        const modal = new ModalBuilder()
+          .setCustomId('modal_ticket_add_member')
+          .setTitle('Add Member to Ticket');
+
+        const userInput = new TextInputBuilder()
+          .setCustomId('user_id')
+          .setLabel('User ID to Add')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('e.g. 123456789012345678')
+          .setRequired(true);
+
+        modal.addComponents(new ActionRowBuilder().addComponents(userInput));
+        await interaction.showModal(modal);
+      }
+
+      if (interaction.customId === 'ticket_remove_member') {
+        if (!isOwnerOrAdmin) {
+          return interaction.reply({ content: '❌ Only Server Owners/Admins can manage ticket members.', ephemeral: true });
+        }
+        const modal = new ModalBuilder()
+          .setCustomId('modal_ticket_remove_member')
+          .setTitle('Remove Member from Ticket');
+
+        const userInput = new TextInputBuilder()
+          .setCustomId('user_id')
+          .setLabel('User ID to Remove')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('e.g. 123456789012345678')
+          .setRequired(true);
+
+        modal.addComponents(new ActionRowBuilder().addComponents(userInput));
+        await interaction.showModal(modal);
+      }
+    }
+
+    // BAN REQUESTS
     if (interaction.customId.startsWith('req_')) {
       const parts = interaction.customId.split('_');
       const action = parts[1];
@@ -579,6 +692,7 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
+    // RANK VERIFICATION
     if (interaction.customId.startsWith('verify_rank_')) {
       const parts = interaction.customId.split('_');
       const action = parts[2];
@@ -602,7 +716,23 @@ client.on('interactionCreate', async (interaction) => {
     }
   }
 
+  // MODAL SUBMISSIONS
   if (interaction.isModalSubmit()) {
+    if (interaction.customId === 'modal_ticket_add_member') {
+      const targetId = interaction.fields.getTextInputValue('user_id');
+      await interaction.channel.permissionOverwrites.edit(targetId, {
+        ViewChannel: true,
+        SendMessages: true
+      }).catch(console.error);
+      await interaction.reply(`➕ Added <@${targetId}> to the ticket.`);
+    }
+
+    if (interaction.customId === 'modal_ticket_remove_member') {
+      const targetId = interaction.fields.getTextInputValue('user_id');
+      await interaction.channel.permissionOverwrites.delete(targetId).catch(console.error);
+      await interaction.reply(`➖ Removed <@${targetId}> from the ticket.`);
+    }
+
     if (interaction.customId.startsWith('ban_deny_modal_')) {
       const denyReason = interaction.fields.getTextInputValue('deny_reason');
 

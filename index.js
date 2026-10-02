@@ -29,6 +29,9 @@ const dbSchema = new mongoose.Schema({
     prefixes: { type: [String], default: [',', '?', '!'] },
     quoteChannelId: { type: String, default: '1555010046994415697' },
     clipsChannelId: { type: String, default: '1471595263100584006' },
+    topClipChannelId: { type: String, default: '1555385023895703794' },
+    boostChannelId: { type: String, default: '1471610310686408969' },
+    selfiesChannelId: { type: String, default: '' }, // Set via ,config selfiesChannelId <id>
     backupChannelId: { type: String, default: '1555358918463594646' },
     banRequestChannelId: { type: String, default: '1555028208913489990' },
     punishmentLogChannelId: { type: String, default: '1555364819433951242' },
@@ -40,43 +43,36 @@ const dbSchema = new mongoose.Schema({
     verifiedRoleId: { type: String, default: '1471595261787766995' },
     autoRoleId: { type: String, default: '1471604983706161334' },
     joinToCreateVcId: { type: String, default: '1554711771510480926' },
-    mainChatId: { type: String, default: '' }, // Set via ,config mainChatId <channel_id>
+    mainChatId: { type: String, default: '' },
   },
   ticketCounter: { type: Number, default: 0 },
   userRanks: { type: Map, of: Object, default: {} },
   userCoins: { type: Map, of: Number, default: {} },
   warnings: { type: Map, of: Array, default: {} },
-  afkUsers: { type: Map, of: Object, default: {} }, // Stores { reason, timestamp }
+  punishments: { type: Map, of: Array, default: {} },
+  afkUsers: { type: Map, of: Object, default: {} },
   stickyMessages: { type: Map, of: String, default: {} },
-  customAliases: { type: Map, of: String, default: {} },
 });
 
 const BotDB = mongoose.model('BotData', dbSchema);
-
 let dbData = null;
 
 async function getDB(guildId = 'main') {
   if (!dbData) {
     dbData = await BotDB.findOne({ guildId });
-    if (!dbData) {
-      dbData = await BotDB.create({ guildId });
-    }
+    if (!dbData) dbData = await BotDB.create({ guildId });
   }
   return dbData;
 }
 
 async function saveDB() {
-  if (dbData) {
-    await dbData.save().catch(err => console.error('Error saving MongoDB data:', err));
-  }
+  if (dbData) await dbData.save().catch(err => console.error('Error saving MongoDB:', err));
 }
 
 if (process.env.MONGODB_URI) {
   mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log('Successfully connected to MongoDB Cloud Database!'))
     .catch(err => console.error('MongoDB Connection Error:', err));
-} else {
-  console.error('MONGODB_URI environment variable is missing!');
 }
 
 // ==========================================
@@ -99,7 +95,6 @@ let globalMessageCounter = 0;
 let minigameActive = false;
 let currentMinigameAnswer = null;
 
-// Trivia Questions Collection
 const TRIVIA_BANK = [
   { q: "What year was Discord officially released?", a: "2015" },
   { q: "What is the highest achievable rank in Valorant?", a: "radiant" },
@@ -113,9 +108,10 @@ const TRIVIA_BANK = [
 client.once('ready', async () => {
   console.log(`[SYSTEM READY] Logged in as ${client.user.tag}`);
   await getDB();
+  setupWeeklyTopClipScheduler();
 });
 
-// Helper Function: Transcripts Generator
+// Helper: Transcripts
 async function sendTranscript(channel, label) {
   const db = await getDB();
   const logChan = channel.guild.channels.cache.get(db.config.transcriptsChannelId);
@@ -125,11 +121,7 @@ async function sendTranscript(channel, label) {
   if (!messages || messages.size === 0) return;
 
   const sorted = Array.from(messages.values()).reverse();
-  let transcriptText = `===========================================\n`;
-  transcriptText += `TRANSCRIPT TYPE: ${label.toUpperCase()}\n`;
-  transcriptText += `CHANNEL NAME: #${channel.name}\n`;
-  transcriptText += `DATE GENERATED: ${new Date().toISOString()}\n`;
-  transcriptText += `===========================================\n\n`;
+  let transcriptText = `===========================================\nTRANSCRIPT TYPE: ${label.toUpperCase()}\nCHANNEL: #${channel.name}\nDATE:${new Date().toISOString()}\n===========================================\n\n`;
 
   sorted.forEach(m => {
     transcriptText += `[${m.createdAt.toLocaleString()}] ${m.author.tag}:${m.content}\n`;
@@ -137,12 +129,61 @@ async function sendTranscript(channel, label) {
 
   const buffer = Buffer.from(transcriptText, 'utf-8');
   const attachment = new AttachmentBuilder(buffer, { name: `${channel.name}-transcript.txt` });
-
   await logChan.send({ content: `📜 **${label} Transcript Logged:** \`${channel.name}\``, files: [attachment] }).catch(() => {});
 }
 
+// Helper: Punishment Logging
+async function logPunishment(guild, title, desc) {
+  const db = await getDB();
+  if (!db.config.punishmentLogChannelId) return;
+  const chan = guild.channels.cache.get(db.config.punishmentLogChannelId);
+  if (!chan) return;
+
+  const embed = new EmbedBuilder().setColor('#ED4245').setTitle(title).setDescription(desc).setTimestamp();
+  chan.send({ embeds: [embed] }).catch(() => {});
+}
+
+// Helper: Weekly Top Clip Scheduler
+function setupWeeklyTopClipScheduler() {
+  setInterval(async () => {
+    const db = await getDB();
+    const now = new Date();
+    if (now.getDay() === 0 && now.getHours() === 12 && now.getMinutes() === 0) { // Weekly Sunday Check
+      for (const guild of client.guilds.cache.values()) {
+        const clipsChan = guild.channels.cache.get(db.config.clipsChannelId);
+        const announceChan = guild.channels.cache.get(db.config.topClipChannelId);
+        if (!clipsChan || !announceChan) continue;
+
+        const messages = await clipsChan.messages.fetch({ limit: 50 }).catch(() => null);
+        if (!messages) continue;
+
+        let topMsg = null;
+        let maxUpvotes = -1;
+
+        messages.forEach(msg => {
+          const upvoteReaction = msg.reactions.cache.get('👍');
+          const count = upvoteReaction ? upvoteReaction.count : 0;
+          if (count > maxUpvotes) {
+            maxUpvotes = count;
+            topMsg = msg;
+          }
+        });
+
+        if (topMsg && maxUpvotes > 0) {
+          const topEmbed = new EmbedBuilder()
+            .setColor('#FEE75C')
+            .setTitle('🏆 Top Clip of the Week!')
+            .setDescription(`Posted by <@${topMsg.author.id}> with **${maxUpvotes} upvotes**!\n\n[Jump to Clip](${topMsg.url})`)
+            .setTimestamp();
+          announceChan.send({ embeds: [topEmbed] }).catch(() => {});
+        }
+      }
+    }
+  }, 60000);
+}
+
 // ==========================================
-// 4. AUTO-ROLE & MEMBER JOIN HANDLER
+// 4. MEMBER EVENTS & BOOST DETECTION
 // ==========================================
 client.on('guildMemberAdd', async (member) => {
   const db = await getDB();
@@ -152,12 +193,28 @@ client.on('guildMemberAdd', async (member) => {
     const role = member.guild.roles.cache.get(db.config.autoRoleId);
     if (role) member.roles.add(role).catch(console.error);
   }
-
   logPunishment(member.guild, '📥 Member Joined', `User: <@${member.id}> (${member.user.tag})`);
 });
 
+client.on('guildMemberUpdate', async (oldMember, newMember) => {
+  const db = await getDB();
+  const oldStatus = oldMember.premiumSince;
+  const newStatus = newMember.premiumSince;
+
+  if (!oldStatus && newStatus) {
+    const boostChan = newMember.guild.channels.cache.get(db.config.boostChannelId);
+    if (boostChan) {
+      const boostEmbed = new EmbedBuilder()
+        .setColor('#F47FFF')
+        .setTitle('🚀 Server Boosted!')
+        .setDescription(`Thank you so much <@${newMember.id}> for boosting and supporting the server!\n\nMake sure to claim and enjoy your **Battle Royale Roles**!`);
+      boostChan.send({ embeds: [boostEmbed] }).catch(() => {});
+    }
+  }
+});
+
 // ==========================================
-// 5. AUTO-VC (JOIN TO CREATE) HANDLER
+// 5. VOICE CHANNELS (JOIN TO CREATE)
 // ==========================================
 client.on('voiceStateUpdate', async (oldState, newState) => {
   const db = await getDB();
@@ -192,7 +249,6 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
   }
 
-  // Auto-cleanup VC with Transcript Logging
   if (oldState.channel && oldState.channel.name.startsWith('🔊 ') && oldState.channel.members.size === 0) {
     await sendTranscript(oldState.channel, 'VC Chat');
     await oldState.channel.delete().catch(() => {});
@@ -216,7 +272,18 @@ client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
   const db = await getDB();
 
-  // Clips Channel Enforcement (Deletes messages without clips/embeds)
+  // Selfies Channel Enforcement (Deletes plain text messages, adds crown to embeds/attachments)
+  if (db.config.selfiesChannelId && message.channel.id === db.config.selfiesChannelId) {
+    const hasMedia = message.attachments.size > 0 || message.embeds.length > 0;
+    if (!hasMedia) {
+      await message.delete().catch(() => {});
+      return;
+    } else {
+      await message.react('👑').catch(() => {});
+    }
+  }
+
+  // Clips Channel Enforcement
   if (db.config.clipsChannelId && message.channel.id === db.config.clipsChannelId) {
     const hasMedia = message.attachments.size > 0 || message.content.includes('http://') || message.content.includes('https://');
     if (!hasMedia) {
@@ -228,22 +295,21 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // Sticky Message System
+  // Fixed Sticky Message System
   if (db.stickyMessages.get(message.channel.id)) {
     const stickyText = db.stickyMessages.get(message.channel.id);
-    const msgs = await message.channel.messages.fetch({ limit: 10 }).catch(() => null);
+    const msgs = await message.channel.messages.fetch({ limit: 5 }).catch(() => null);
     if (msgs) {
-      const lastBotMsg = msgs.find(m => m.author.id === client.user.id && m.content.includes('📌 **Sticky Note:**'));
-      if (lastBotMsg) await lastBotMsg.delete().catch(() => {});
+      const lastSticky = msgs.find(m => m.author.id === client.user.id && m.content.startsWith('📌 **Sticky Note:**'));
+      if (lastSticky) await lastSticky.delete().catch(() => {});
     }
     await message.channel.send(`📌 **Sticky Note:**\n${stickyText}`).catch(() => {});
   }
 
-  // AFK Return Check
+  // AFK Check
   if (db.afkUsers.has(message.author.id)) {
     const afkData = db.afkUsers.get(message.author.id);
     const durationMs = Date.now() - (afkData.timestamp || Date.now());
-    
     const minutes = Math.floor(durationMs / 60000);
     const seconds = Math.floor((durationMs % 60000) / 1000);
     const timeFormatted = minutes > 0 ? `${minutes}m${seconds}s` : `${seconds}s`;
@@ -256,16 +322,7 @@ client.on('messageCreate', async (message) => {
       .catch(() => {});
   }
 
-  if (message.mentions.users.size > 0) {
-    message.mentions.users.forEach(u => {
-      if (db.afkUsers.has(u.id)) {
-        const afkData = db.afkUsers.get(u.id);
-        message.reply(`**${u.username}** is currently AFK: *${afkData.reason}*`).catch(() => {});
-      }
-    });
-  }
-
-  // Coin System
+  // Coins & Trivia
   globalMessageCounter++;
   if (globalMessageCounter % 100 === 0) {
     const currentCoins = db.userCoins.get(message.author.id) || 0;
@@ -274,7 +331,6 @@ client.on('messageCreate', async (message) => {
     message.channel.send(`🎉 **100 Messages Hit!** <@${message.author.id}> earned **10 coins**!`).catch(() => {});
   }
 
-  // Trivia (Restricted ONLY to Main Chat)
   const isMainChat = db.config.mainChatId ? message.channel.id === db.config.mainChatId : true;
   if (isMainChat && globalMessageCounter % 40 === 0 && !minigameActive) {
     minigameActive = true;
@@ -301,37 +357,170 @@ client.on('messageCreate', async (message) => {
     message.reply('🎉 Correct! You won **15 coins**!').catch(() => {});
   }
 
-  // Command Parser
+  // Command Handler
   const usedPrefix = db.config.prefixes.find(p => message.content.startsWith(p));
   if (!usedPrefix) return;
 
   const args = message.content.slice(usedPrefix.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
 
-  // VOICE CHANNEL COMMANDS
-  if (command === 'permit') {
-    if (!message.member.voice.channel || !message.member.voice.channel.name.startsWith('🔊 ')) {
-      return message.reply('❌ You must be inside your temporary voice room to use this.');
-    }
+  // HELP COMMAND
+  if (command === 'help') {
+    const helpEmbed = new EmbedBuilder()
+      .setColor('#5865F2')
+      .setTitle('📚 Server Command List')
+      .addFields(
+        { name: '🛠 Moderation', value: '`,warn`, `,warnings`, `,timeout`, `,ban`, `,banrequest`, `,punishments`' },
+        { name: '🎮 Gaming Ranks', value: '`,setrank <game> <rank>`, `,rank [@user]`, `,removerank <game>`' },
+        { name: '💰 Economy & Fun', value: '`,bal`, `,coins`, `,afk`, `,s` / `,snipe`' },
+        { name: '🎙 Voice Chat', value: '`,permit @user`, `,kick @user`' },
+        { name: '📌 Utility', value: '`,sticky <text>`, `,unsticky`, `,selfie`, `,ticket`' }
+      );
+    return message.channel.send({ embeds: [helpEmbed] });
+  }
+
+  // ECONOMY / BALANCE
+  if (command === 'bal' || command === 'balance' || command === 'coins') {
+    const target = message.mentions.users.first() || message.author;
+    const coins = db.userCoins.get(target.id) || 0;
+    return message.reply(`🪙 **${target.username}** currently has **${coins} coins**.`);
+  }
+
+  // RANK REMOVAL
+  if (command === 'removerank' || command === 'delrank' || command === 'deleterank') {
+    const game = args[0]?.toLowerCase();
+    if (!game) return message.reply('Usage: `,removerank <game>`');
+
+    const profile = db.userRanks.get(message.author.id);
+    if (!profile || !profile[game]) return message.reply(`❌ You do not have a rank saved for **${game.toUpperCase()}**.`);
+
+    delete profile[game];
+    db.userRanks.set(message.author.id, profile);
+    await saveDB();
+    return message.reply(`✅ Removed your rank for **${game.toUpperCase()}**.`);
+  }
+
+  // STICKY / UNSTICKY
+  if (command === 'sticky') {
+    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) return;
+    const text = args.join(' ');
+    if (!text) return message.reply('Usage: `,sticky <text>`');
+
+    db.stickyMessages.set(message.channel.id, text);
+    await saveDB();
+    message.delete().catch(() => {});
+    return message.channel.send(`📌 **Sticky Note:**\n${text}`);
+  }
+
+  if (command === 'unsticky') {
+    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) return;
+    db.stickyMessages.delete(message.channel.id);
+    await saveDB();
+    return message.reply('✅ Removed sticky note from this channel.');
+  }
+
+  // MODERATION COMMANDS
+  if (command === 'warn') {
+    if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) return;
     const target = message.mentions.members.first();
-    if (!target) return message.reply('Usage: `,permit @member`');
+    const reason = args.slice(1).join(' ') || 'No reason provided';
+    if (!target) return message.reply('Usage: `,warn @user <reason>`');
+
+    const userWarns = db.warnings.get(target.id) || [];
+    userWarns.push({ reason, moderator: message.author.tag, date: new Date().toLocaleDateString() });
+    db.warnings.set(target.id, userWarns);
+    await saveDB();
+
+    logPunishment(message.guild, '⚠️ Member Warned', `User: <@${target.id}>\nModerator: <@${message.author.id}>\nReason:${reason}`);
+    return message.reply(`⚠️ Warned <@${target.id}> for: *${reason}*`);
+  }
+
+  if (command === 'warnings') {
+    const target = message.mentions.users.first() || message.author;
+    const userWarns = db.warnings.get(target.id) || [];
+    if (userWarns.length === 0) return message.reply(`**${target.username}** has 0 warnings.`);
+
+    const warnEmbed = new EmbedBuilder().setColor('#FEE75C').setTitle(`⚠️ Warning Log — ${target.username}`);
+    userWarns.forEach((w, idx) => warnEmbed.addFields({ name: `Warning #${idx + 1}`, value: `**Reason:** ${w.reason}\n**By:** ${w.moderator} (${w.date})` }));
+    return message.channel.send({ embeds: [warnEmbed] });
+  }
+
+  if (command === 'timeout' || command === 'mute') {
+    if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) return;
+    const target = message.mentions.members.first();
+    const durationMins = parseInt(args[1]);
+    const reason = args.slice(2).join(' ') || 'No reason provided';
+    if (!target || isNaN(durationMins)) return message.reply('Usage: `,timeout @user <minutes> [reason]`');
+
+    await target.timeout(durationMins * 60 * 1000, reason).catch(() => {});
+    logPunishment(message.guild, '⏳ Member Timed Out', `User: <@${target.id}>\nDuration: ${durationMins}m\nReason:${reason}`);
+    return message.reply(`⏳ Timed out <@${target.id}> for **${durationMins} minutes**.`);
+  }
+
+  if (command === 'ban') {
+    if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers)) return;
+    const target = message.mentions.members.first();
+    const reason = args.slice(1).join(' ') || 'No reason provided';
+    if (!target) return message.reply('Usage: `,ban @user [reason]`');
+
+    await target.ban({ reason }).catch(() => {});
+    logPunishment(message.guild, '🔨 Member Banned', `User: <@${target.id}>\nModerator: <@${message.author.id}>\nReason:${reason}`);
+    return message.reply(`🔨 Banned <@${target.id}>.`);
+  }
+
+  if (command === 'banrequest') {
+    const target = message.mentions.users.first();
+    const reason = args.slice(1).join(' ');
+    if (!target || !reason) return message.reply('Usage: `,banrequest @user <reason>`');
+
+    message.delete().catch(() => {});
+    if (db.config.banRequestChannelId) {
+      const banChan = message.guild.channels.cache.get(db.config.banRequestChannelId);
+      if (banChan) {
+        const banEmbed = new EmbedBuilder()
+          .setColor('#ED4245')
+          .setTitle('🚨 Ban Request Submitted')
+          .setDescription(`Target: <@${target.id}>\nRequested By: <@${message.author.id}>\nReason:${reason}`);
+
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`banreq_approve_${target.id}`).setLabel('Approve Ban').setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId(`banreq_deny_${target.id}`).setLabel('Deny Request').setStyle(ButtonStyle.Secondary)
+        );
+
+        banChan.send({ embeds: [banEmbed], components: [row] }).catch(() => {});
+      }
+    }
+    return message.channel.send(`✅ Ban request submitted for <@${target.id}>.`);
+  }
+
+  if (command === 'punishments') {
+    const target = message.mentions.users.first() || message.author;
+    const userLogs = db.punishments.get(target.id) || [];
+    if (userLogs.length === 0) return message.reply(`No punishment records found for **${target.username}**.`);
+
+    const pEmbed = new EmbedBuilder().setColor('#ED4245').setTitle(`📜 Punishment History — ${target.username}`);
+    userLogs.forEach((p, idx) => pEmbed.addFields({ name: `Log #${idx + 1}`, value: `**Type:** ${p.type}\n**Reason:** ${p.reason}` }));
+    return message.channel.send({ embeds: [pEmbed] });
+  }
+
+  // VOICE CONTROLS
+  if (command === 'permit') {
+    if (!message.member.voice.channel || !message.member.voice.channel.name.startsWith('🔊 ')) return message.reply('❌ Must be in your temp voice room.');
+    const target = message.mentions.members.first();
+    if (!target) return message.reply('Usage: `,permit @user`');
 
     await message.member.voice.channel.permissionOverwrites.edit(target.id, { Connect: true, ViewChannel: true });
-    return message.reply(`✅ Permitted <@${target.id}> to join your voice room.`);
+    return message.reply(`✅ Permitted <@${target.id}>.`);
   }
 
   if (command === 'kick') {
-    if (!message.member.voice.channel || !message.member.voice.channel.name.startsWith('🔊 ')) {
-      return message.reply('❌ You must be inside your temporary voice room to use this.');
-    }
+    if (!message.member.voice.channel || !message.member.voice.channel.name.startsWith('🔊 ')) return message.reply('❌ Must be in your temp voice room.');
     const target = message.mentions.members.first();
-    if (!target) return message.reply('Usage: `,kick @member`');
+    if (!target) return message.reply('Usage: `,kick @user`');
 
     await message.member.voice.channel.permissionOverwrites.edit(target.id, { Connect: false });
-    if (target.voice.channelId === message.member.voice.channel.id) {
-      await target.voice.disconnect().catch(() => {});
-    }
-    return message.reply(`⛔ Kicked and revoked access for <@${target.id}>.`);
+    if (target.voice.channelId === message.member.voice.channel.id) await target.voice.disconnect().catch(() => {});
+    return message.reply(`⛔ Kicked <@${target.id}>.`);
   }
 
   if (command === 'ping') {
@@ -353,32 +542,24 @@ client.on('messageCreate', async (message) => {
         '3. Include today\'s **date** and your **Discord username** on the paper.\n\n' +
         'Staff will inspect your image and verify you shortly!'
       );
-
     return message.channel.send({ embeds: [selfieEmbed] });
   }
 
   if (command === 'ticket') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) return;
     message.delete().catch(() => {});
-    const panelEmbed = new EmbedBuilder()
-      .setColor('#57F287')
-      .setTitle('🎟 Support Ticket Center')
-      .setDescription('Click below to open a private support ticket with staff.');
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('open_ticket').setLabel('Create Ticket').setStyle(ButtonStyle.Primary).setEmoji('📩')
-    );
+    const panelEmbed = new EmbedBuilder().setColor('#57F287').setTitle('🎟 Support Ticket Center').setDescription('Click below to open a private support ticket with staff.');
+    const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('open_ticket').setLabel('Create Ticket').setStyle(ButtonStyle.Primary).setEmoji('📩'));
     return message.channel.send({ embeds: [panelEmbed], components: [row] });
   }
 
-  if (command === 'setrank' || command === 'rankset') {
+  if (command === 'setrank') {
     const game = args[0]?.toLowerCase();
     const rank = args.slice(1).join(' ');
     if (!game || !rank) return message.reply(`Usage: \`${usedPrefix}setrank <game> <rank>\``);
 
     const topTierRanks = ['predator', 'radiant', 'grandmaster', 'champion', 'ssl', 'iridescent', 'top 250', 'godlike', 'unreal'];
     const isHighRank = topTierRanks.some(r => rank.toLowerCase().includes(r));
-
     const userProfile = db.userRanks.get(message.author.id) || {};
 
     if (isHighRank) {
@@ -398,7 +579,6 @@ client.on('messageCreate', async (message) => {
             new ButtonBuilder().setCustomId(`verify_rank_approve_${message.author.id}_${game}`).setLabel('Approve Rank').setStyle(ButtonStyle.Success),
             new ButtonBuilder().setCustomId(`verify_rank_deny_${message.author.id}_${game}`).setLabel('Deny Rank').setStyle(ButtonStyle.Danger)
           );
-
           vChan.send({ embeds: [verifyEmbed], components: [row] }).catch(() => {});
         }
       }
@@ -415,20 +595,13 @@ client.on('messageCreate', async (message) => {
     const target = message.mentions.users.first() || message.author;
     const profile = db.userRanks.get(target.id);
 
-    if (!profile || Object.keys(profile).length === 0) {
-      return message.reply(`**${target.username}** has no saved game ranks.`);
-    }
+    if (!profile || Object.keys(profile).length === 0) return message.reply(`**${target.username}** has no saved game ranks.`);
 
-    const rankEmbed = new EmbedBuilder()
-      .setColor('#5865F2')
-      .setTitle(`🎮 Game Ranks — ${target.username}`)
-      .setThumbnail(target.displayAvatarURL({ dynamic: true }));
-
+    const rankEmbed = new EmbedBuilder().setColor('#5865F2').setTitle(`🎮 Game Ranks — ${target.username}`).setThumbnail(target.displayAvatarURL({ dynamic: true }));
     for (const [game, data] of Object.entries(profile)) {
       const statusBadge = data.verified ? '✅' : '⏳ *(Pending Proof)*';
       rankEmbed.addFields({ name: game.toUpperCase(), value: `\`${data.rank}\` ${statusBadge}`, inline: true });
     }
-
     return message.channel.send({ embeds: [rankEmbed] });
   }
 
@@ -458,9 +631,7 @@ client.on('messageCreate', async (message) => {
     const key = args[0];
     const val = args[1];
 
-    if (!key || !(key in db.config)) {
-      return message.reply(`Valid keys: \`${Object.keys(db.config.toObject()).join(', ')}\``);
-    }
+    if (!key || !(key in db.config)) return message.reply(`Valid keys: \`${Object.keys(db.config.toObject()).join(', ')}\``);
 
     db.config[key] = val;
     await saveDB();
@@ -470,13 +641,12 @@ client.on('messageCreate', async (message) => {
 });
 
 // ==========================================
-// 7. INTERACTION HANDLER (BUTTONS & TICKETS)
+// 7. BUTTONS, MODALS & TICKET SYSTEM
 // ==========================================
 client.on('interactionCreate', async (interaction) => {
   const db = await getDB();
 
   if (interaction.isButton()) {
-    // TICKET CREATION WITH GLOBAL INCREMENTING NUMBERS
     if (interaction.customId === 'open_ticket') {
       const guild = interaction.guild;
       const user = interaction.user;
@@ -493,13 +663,8 @@ client.on('interactionCreate', async (interaction) => {
         { id: user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
       ];
 
-      if (db.config.ownerRoleId) {
-        permissions.push({ id: db.config.ownerRoleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] });
-      }
-
-      if (db.config.staffRoleId) {
-        permissions.push({ id: db.config.staffRoleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] });
-      }
+      if (db.config.ownerRoleId) permissions.push({ id: db.config.ownerRoleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] });
+      if (db.config.staffRoleId) permissions.push({ id: db.config.staffRoleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] });
 
       const ticketChan = await guild.channels.create({
         name: channelName,
@@ -510,11 +675,8 @@ client.on('interactionCreate', async (interaction) => {
 
       if (ticketChan) {
         if (db.config.staffRoleId) ticketChan.send(`<@&${db.config.staffRoleId}> New ticket from <@${user.id}>!`).catch(() => {});
-        
-        const controlEmbed = new EmbedBuilder()
-          .setColor('#5865F2')
-          .setTitle(`⚙️ Ticket Panel — #${formattedNumber}`)
-          .setDescription(`Welcome <@${user.id}>! Staff will be with you shortly.`);
+
+        const controlEmbed = new EmbedBuilder().setColor('#5865F2').setTitle(`⚙️ Ticket Panel — #${formattedNumber}`).setDescription(`Welcome <@${user.id}>! Staff will be with you shortly.`);
 
         const row1 = new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId('ticket_close').setLabel('Close').setStyle(ButtonStyle.Danger).setEmoji('🔒'),
@@ -523,18 +685,35 @@ client.on('interactionCreate', async (interaction) => {
           new ButtonBuilder().setCustomId('ticket_hide').setLabel('Hide').setStyle(ButtonStyle.Primary).setEmoji('🙈')
         );
 
-        await ticketChan.send({ embeds: [controlEmbed], components: [row1] }).catch(console.error);
+        const row2 = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('ticket_add_member').setLabel('Add Member').setStyle(ButtonStyle.Secondary).setEmoji('➕'),
+          new ButtonBuilder().setCustomId('ticket_remove_member').setLabel('Remove Member').setStyle(ButtonStyle.Secondary).setEmoji('➖')
+        );
+
+        await ticketChan.send({ embeds: [controlEmbed], components: [row1, row2] }).catch(console.error);
         await interaction.reply({ content: `Ticket opened: ${ticketChan}`, ephemeral: true }).catch(() => {});
       }
     }
 
-    // TICKET ACTIONS & HIDE/UNHIDE TOGGLE
+    if (interaction.customId === 'ticket_add_member') {
+      const modal = new ModalBuilder().setCustomId('modal_add_member').setTitle('Add Member to Ticket');
+      const input = new TextInputBuilder().setCustomId('member_id').setLabel('Member Discord User ID').setStyle(TextInputStyle.Short).setRequired(true);
+      modal.addComponents(new ActionRowBuilder().addComponents(input));
+      return interaction.showModal(modal);
+    }
+
+    if (interaction.customId === 'ticket_remove_member') {
+      const modal = new ModalBuilder().setCustomId('modal_remove_member').setTitle('Remove Member from Ticket');
+      const input = new TextInputBuilder().setCustomId('member_id').setLabel('Member Discord User ID').setStyle(TextInputStyle.Short).setRequired(true);
+      modal.addComponents(new ActionRowBuilder().addComponents(input));
+      return interaction.showModal(modal);
+    }
+
     if (interaction.customId.startsWith('ticket_')) {
       const isOwnerOrAdmin = interaction.user.id === interaction.guild.ownerId || interaction.member.roles.cache.has(db.config.ownerRoleId) || interaction.member.permissions.has(PermissionsBitField.Flags.Administrator);
 
       if (interaction.customId === 'ticket_close') {
         if (!isOwnerOrAdmin) return interaction.reply({ content: '❌ Only Server Owners/Admins can close tickets.', ephemeral: true });
-
         await interaction.reply('🔒 Generating transcript and closing ticket in 5 seconds...');
         await sendTranscript(interaction.channel, 'Ticket');
         setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
@@ -542,38 +721,8 @@ client.on('interactionCreate', async (interaction) => {
 
       if (interaction.customId === 'ticket_hide') {
         if (!isOwnerOrAdmin) return interaction.reply({ content: '❌ Only Server Owners/Admins can hide tickets.', ephemeral: true });
-
-        if (db.config.staffRoleId) {
-          await interaction.channel.permissionOverwrites.edit(db.config.staffRoleId, { ViewChannel: false }).catch(console.error);
-        }
-
-        const updatedRow = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('ticket_close').setLabel('Close').setStyle(ButtonStyle.Danger).setEmoji('🔒'),
-          new ButtonBuilder().setCustomId('ticket_claim').setLabel('Claim').setStyle(ButtonStyle.Success).setEmoji('🙋'),
-          new ButtonBuilder().setCustomId('ticket_unclaim').setLabel('Unclaim').setStyle(ButtonStyle.Secondary).setEmoji('🚪'),
-          new ButtonBuilder().setCustomId('ticket_unhide').setLabel('Unhide').setStyle(ButtonStyle.Success).setEmoji('👁️')
-        );
-
-        await interaction.update({ components: [updatedRow] });
-        await interaction.followUp({ content: '🙈 Ticket hidden! Non-admin staff can no longer view this channel.', ephemeral: true });
-      }
-
-      if (interaction.customId === 'ticket_unhide') {
-        if (!isOwnerOrAdmin) return interaction.reply({ content: '❌ Only Server Owners/Admins can unhide tickets.', ephemeral: true });
-
-        if (db.config.staffRoleId) {
-          await interaction.channel.permissionOverwrites.edit(db.config.staffRoleId, { ViewChannel: true }).catch(console.error);
-        }
-
-        const updatedRow = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('ticket_close').setLabel('Close').setStyle(ButtonStyle.Danger).setEmoji('🔒'),
-          new ButtonBuilder().setCustomId('ticket_claim').setLabel('Claim').setStyle(ButtonStyle.Success).setEmoji('🙋'),
-          new ButtonBuilder().setCustomId('ticket_unclaim').setLabel('Unclaim').setStyle(ButtonStyle.Secondary).setEmoji('🚪'),
-          new ButtonBuilder().setCustomId('ticket_hide').setLabel('Hide').setStyle(ButtonStyle.Primary).setEmoji('🙈')
-        );
-
-        await interaction.update({ components: [updatedRow] });
-        await interaction.followUp({ content: '👁️ Ticket unhidden! Staff can view this channel again.', ephemeral: true });
+        if (db.config.staffRoleId) await interaction.channel.permissionOverwrites.edit(db.config.staffRoleId, { ViewChannel: false }).catch(console.error);
+        await interaction.reply({ content: '🙈 Ticket hidden! Non-admin staff can no longer view this channel.', ephemeral: true });
       }
 
       if (interaction.customId === 'ticket_claim') {
@@ -587,21 +736,26 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
   }
+
+  // MODAL SUBMISSIONS FOR TICKET ACCESS
+  if (interaction.isModalSubmit()) {
+    if (interaction.customId === 'modal_add_member') {
+      const memberId = interaction.fields.getTextInputValue('member_id');
+      await interaction.channel.permissionOverwrites.edit(memberId, { ViewChannel: true, SendMessages: true }).catch(() => {});
+      return interaction.reply({ content: `✅ Added <@${memberId}> to the ticket.`, ephemeral: true });
+    }
+
+    if (interaction.customId === 'modal_remove_member') {
+      const memberId = interaction.fields.getTextInputValue('member_id');
+      await interaction.channel.permissionOverwrites.edit(memberId, { ViewChannel: false }).catch(() => {});
+      return interaction.reply({ content: `⛔ Removed <@${memberId}> from the ticket.`, ephemeral: true });
+    }
+  }
 });
 
 // ==========================================
-// 8. LOGGING & LOGIN
+// 8. LOGIN
 // ==========================================
-async function logPunishment(guild, title, desc) {
-  const db = await getDB();
-  if (!db.config.punishmentLogChannelId) return;
-  const chan = guild.channels.cache.get(db.config.punishmentLogChannelId);
-  if (!chan) return;
-
-  const embed = new EmbedBuilder().setColor('#ED4245').setTitle(title).setDescription(desc).setTimestamp();
-  chan.send({ embeds: [embed] }).catch(() => {});
-}
-
 if (!process.env.DISCORD_TOKEN) {
   console.error('DISCORD_TOKEN env variable missing!');
   process.exit(1);

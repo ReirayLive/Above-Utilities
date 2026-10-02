@@ -4,19 +4,13 @@ const {
   ModalBuilder, TextInputBuilder, TextInputStyle
 } = require('discord.js');
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
+const mongoose = require('mongoose');
 
 // ==========================================
 // 0. GLOBAL CRASH SHIELD
 // ==========================================
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('[Unhandled Rejection]:', reason);
-});
-
-process.on('uncaughtException', (err, origin) => {
-  console.error('[Uncaught Exception]:', err, origin);
-});
+process.on('unhandledRejection', (reason) => console.error('[Unhandled Rejection]:', reason));
+process.on('uncaughtException', (err, origin) => console.error('[Uncaught Exception]:', err, origin));
 
 // ==========================================
 // 1. EXPRESS KEEP-ALIVE WEB SERVER
@@ -27,7 +21,62 @@ app.get('/', (req, res) => res.send('Bot Online 24/7'));
 app.listen(PORT, () => console.log(`Web server listening on port ${PORT}`));
 
 // ==========================================
-// 2. DISCORD CLIENT CONFIGURATION
+// 2. MONGOOSE DATABASE SCHEMA & MODEL
+// ==========================================
+const dbSchema = new mongoose.Schema({
+  guildId: { type: String, required: true, unique: true },
+  config: {
+    prefixes: { type: [String], default: [',', '?', '!'] },
+    quoteChannelId: { type: String, default: '1555010046994415697' },
+    clipsChannelId: { type: String, default: '1471595263100584006' },
+    backupChannelId: { type: String, default: '1555358918463594646' },
+    banRequestChannelId: { type: String, default: '1555028208913489990' },
+    punishmentLogChannelId: { type: String, default: '1555364819433951242' },
+    verificationLogChannelId: { type: String, default: '1555365045834092554' },
+    staffRoleId: { type: String, default: '1554712377595920474' },
+    verifiedRoleId: { type: String, default: '1471595261787766995' },
+    autoRoleId: { type: String, default: '1471604983706161334' },
+    joinToCreateVcId: { type: String, default: '1554711771510480926' },
+  },
+  userRanks: { type: Map, of: Object, default: {} },
+  userCoins: { type: Map, of: Number, default: {} },
+  warnings: { type: Map, of: Array, default: {} },
+  afkUsers: { type: Map, of: String, default: {} },
+  stickyMessages: { type: Map, of: String, default: {} },
+  customAliases: { type: Map, of: String, default: {} },
+});
+
+const BotDB = mongoose.model('BotData', dbSchema);
+
+let dbData = null;
+
+async function getDB(guildId = 'main') {
+  if (!dbData) {
+    dbData = await BotDB.findOne({ guildId });
+    if (!dbData) {
+      dbData = await BotDB.create({ guildId });
+    }
+  }
+  return dbData;
+}
+
+async function saveDB() {
+  if (dbData) {
+    await dbData.save().catch(err => console.error('Error saving MongoDB data:', err));
+  }
+}
+
+// Connect to MongoDB Cloud
+if (process.env.MONGODB_URI) {
+  mongoose.connect(process.env.MONGODB_URI)
+    .then(() => console.log('Successfully connected to MongoDB Cloud Database!'))
+    .catch(err => console.error('MongoDB Connection Error:', err));
+} else {
+  console.error('MONGODB_URI environment variable is missing!');
+}
+
+// ==========================================
+// 3. DISCORD CLIENT CONFIGURATION
 // ==========================================
 const client = new Client({
   intents: [
@@ -41,103 +90,21 @@ const client = new Client({
   partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 });
 
-// ==========================================
-// 3. PERSISTENT JSON DATABASE SYSTEM
-// ==========================================
-const DB_FILE = path.join(__dirname, 'database.json');
-
-let db = {
-  config: {
-    prefixes: [',', '?', '!'],
-    quoteChannelId: '1555010046994415697',
-    clipsChannelId: '1471595263100584006',
-    backupChannelId: '1555358918463594646',
-    banRequestChannelId: '1555028208913489990',
-    punishmentLogChannelId: '1555364819433951242',
-    verificationLogChannelId: '1555365045834092554',
-    staffRoleId: '1554712377595920474',
-    verifiedRoleId: '1471595261787766995',
-    autoRoleId: '1471604983706161334',
-    joinToCreateVcId: '1554711771510480926',
-  },
-  userRanks: {},      
-  userCoins: {},      
-  warnings: {},       
-  afkUsers: {},       
-  stickyMessages: {}, 
-  customAliases: {},  
-};
-
-function saveDB() {
-  try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
-  } catch (e) {
-    console.error('Error saving DB:', e);
-  }
-}
-
-// Load DB & auto-inject hardcoded channel/role IDs
-if (fs.existsSync(DB_FILE)) {
-  try {
-    const loadedData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-    db = { ...db, ...loadedData };
-    if (!db.config) db.config = {};
-    
-    db.config.prefixes = db.config.prefixes || [',', '?', '!'];
-    db.config.quoteChannelId = db.config.quoteChannelId || '1555010046994415697';
-    db.config.clipsChannelId = db.config.clipsChannelId || '1471595263100584006';
-    db.config.backupChannelId = db.config.backupChannelId || '1555358918463594646';
-    db.config.banRequestChannelId = db.config.banRequestChannelId || '1555028208913489990';
-    db.config.punishmentLogChannelId = db.config.punishmentLogChannelId || '1555364819433951242';
-    db.config.verificationLogChannelId = db.config.verificationLogChannelId || '1555365045834092554';
-    db.config.staffRoleId = db.config.staffRoleId || '1554712377595920474';
-    db.config.verifiedRoleId = db.config.verifiedRoleId || '1471595261787766995';
-    db.config.autoRoleId = db.config.autoRoleId || '1471604983706161334';
-    db.config.joinToCreateVcId = db.config.joinToCreateVcId || '1554711771510480926';
-
-    if (!db.warnings) db.warnings = {};
-    saveDB();
-    console.log('Persistent database loaded with assigned IDs.');
-  } catch (err) {
-    console.error('Error reading database file, resetting defaults:', err);
-    saveDB();
-  }
-} else {
-  console.log('database.json missing — creating new initial file...');
-  saveDB();
-}
-
 const deletedMessages = new Map();
 let globalMessageCounter = 0;
 let minigameActive = false;
 let currentMinigameAnswer = null;
 
-client.once('ready', () => {
+client.once('ready', async () => {
   console.log(`[SYSTEM READY] Logged in as ${client.user.tag}`);
-
-  setInterval(async () => {
-    if (!db.config.backupChannelId) return;
-    try {
-      const backupChannel = await client.channels.fetch(db.config.backupChannelId).catch(() => null);
-      if (!backupChannel) return;
-
-      if (fs.existsSync(DB_FILE)) {
-        await backupChannel.send({
-          content: '📦 **Automated 15-Minute Database Backup**',
-          files: [{ attachment: DB_FILE, name: 'database.json' }]
-        });
-        console.log('[AUTO-BACKUP] Database backup dispatched.');
-      }
-    } catch (err) {
-      console.error('[AUTO-BACKUP ERROR]:', err);
-    }
-  }, 900000); 
+  await getDB();
 });
 
 // ==========================================
 // 4. AUTO-ROLE & MEMBER JOIN HANDLER
 // ==========================================
 client.on('guildMemberAdd', async (member) => {
+  const db = await getDB();
   member.send(`Welcome to **${member.guild.name}**! Enjoy your stay.`).catch(() => {});
 
   if (db.config.autoRoleId) {
@@ -161,6 +128,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
 // 5. AUTO-VC (JOIN TO CREATE) HANDLER
 // ==========================================
 client.on('voiceStateUpdate', async (oldState, newState) => {
+  const db = await getDB();
   if (newState.channelId && newState.channelId === db.config.joinToCreateVcId) {
     const guild = newState.guild;
     const user = newState.member.user;
@@ -185,7 +153,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('vc_lock').setLabel('🔒 Lock').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId('vc_unlock').setLabel('🔓 Unlock').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('vc_hide').setLabel('👁️️ Hide').setStyle(ButtonStyle.Danger)
+        new ButtonBuilder().setCustomId('vc_hide').setLabel('👁 Hide').setStyle(ButtonStyle.Danger)
       );
 
       await createdChannel.send({ embeds: [menuEmbed], components: [row] }).catch(console.error);
@@ -212,6 +180,7 @@ client.on('messageDelete', (message) => {
 
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
+  const db = await getDB();
 
   if (db.config.clipsChannelId && message.channel.id === db.config.clipsChannelId) {
     if (message.attachments.size > 0 || message.content.includes('http')) {
@@ -220,8 +189,8 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  if (db.stickyMessages[message.channel.id]) {
-    const stickyText = db.stickyMessages[message.channel.id];
+  if (db.stickyMessages.get(message.channel.id)) {
+    const stickyText = db.stickyMessages.get(message.channel.id);
     const msgs = await message.channel.messages.fetch({ limit: 10 }).catch(() => null);
     if (msgs) {
       const lastBotMsg = msgs.find(m => m.author.id === client.user.id && m.content.includes('📌 **Sticky Note:**'));
@@ -230,24 +199,25 @@ client.on('messageCreate', async (message) => {
     await message.channel.send(`📌 **Sticky Note:**\n${stickyText}`).catch(() => {});
   }
 
-  if (db.afkUsers[message.author.id]) {
-    delete db.afkUsers[message.author.id];
-    saveDB();
+  if (db.afkUsers.has(message.author.id)) {
+    db.afkUsers.delete(message.author.id);
+    await saveDB();
     message.reply('Welcome back! Your AFK status has been removed.').then(m => setTimeout(() => m.delete().catch(() => {}), 4000)).catch(() => {});
   }
 
   if (message.mentions.users.size > 0) {
     message.mentions.users.forEach(u => {
-      if (db.afkUsers[u.id]) {
-        message.reply(`**${u.username}** is currently AFK: *${db.afkUsers[u.id]}*`).catch(() => {});
+      if (db.afkUsers.has(u.id)) {
+        message.reply(`**${u.username}** is currently AFK: *${db.afkUsers.get(u.id)}*`).catch(() => {});
       }
     });
   }
 
   globalMessageCounter++;
   if (globalMessageCounter % 100 === 0) {
-    db.userCoins[message.author.id] = (db.userCoins[message.author.id] || 0) + 10;
-    saveDB();
+    const currentCoins = db.userCoins.get(message.author.id) || 0;
+    db.userCoins.set(message.author.id, currentCoins + 10);
+    await saveDB();
     message.channel.send(`🎉 **100 Messages Hit!** <@${message.author.id}> earned **10 coins**!`).catch(() => {});
   }
 
@@ -271,8 +241,9 @@ client.on('messageCreate', async (message) => {
   if (minigameActive && message.content.trim() === currentMinigameAnswer) {
     minigameActive = false;
     currentMinigameAnswer = null;
-    db.userCoins[message.author.id] = (db.userCoins[message.author.id] || 0) + 15;
-    saveDB();
+    const currentCoins = db.userCoins.get(message.author.id) || 0;
+    db.userCoins.set(message.author.id, currentCoins + 15);
+    await saveDB();
     message.reply('🎉 Correct! You won **15 coins**!').catch(() => {});
   }
 
@@ -288,27 +259,18 @@ client.on('messageCreate', async (message) => {
     return sent.edit(`🏓 **Pong!** Latency: \`${sent.createdTimestamp - message.createdTimestamp}ms\` | API: \`${Math.round(client.ws.ping)}ms\``);
   }
 
-  if (command === 'backup') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) return;
-    if (!fs.existsSync(DB_FILE)) saveDB();
-    return message.channel.send({
-      content: '📦 Here is your current `database.json` backup!',
-      files: [{ attachment: DB_FILE, name: 'database.json' }]
-    }).catch(console.error);
-  }
-
   if (command === 'help' || command === 'commands') {
     const helpEmbed = new EmbedBuilder()
       .setColor('#5865F2')
       .setTitle('📜 Bot Command Center')
       .setDescription(`Current Prefixes: \`${db.config.prefixes.join('`, `')}\``)
       .addFields(
-        { name: '⚡ System', value: `\`${usedPrefix}ping\`\n\`${usedPrefix}backup\`` },
-        { name: '🎮 Gaming & Ranks', value: `\`${usedPrefix}setrank <game> <rank>\`\n\`${usedPrefix}rank [@user]\`\n\`${usedPrefix}removerank <game>\`` },
+        { name: '⚡ System', value: `\`${usedPrefix}ping\`` },
+        { name: '🎮 Gaming & Ranks', value: `\`${usedPrefix}setrank <game> <rank>\`\n\`${usedPrefix}rank [@user]\`` },
         { name: '🛡️ Moderation', value: `\`${usedPrefix}ban @user [reason]\`\n\`${usedPrefix}banrequest @user [reason]\`\n\`${usedPrefix}timeout @user <min> [reason]\`\n\`${usedPrefix}untimeout @user\`\n\`${usedPrefix}addrole @user <role>\`\n\`${usedPrefix}removerole @user <role>\`` },
         { name: '⚠️ Warning Management', value: `\`${usedPrefix}warn @user [reason]\`\n\`${usedPrefix}warnings [@user]\`\n\`${usedPrefix}removewarning @user <index>\`\n\`${usedPrefix}clearwarnings @user\`` },
         { name: '💬 Chat Tools & Fun', value: `\`${usedPrefix}afk [reason]\`\n\`${usedPrefix}snipe\`\n\`${usedPrefix}coins [@user]\`\n\`${usedPrefix}quote [message]\`\n\`${usedPrefix}sticky <text>\`\n\`${usedPrefix}unsticky\`` },
-        { name: '⚙️ Admin Setup', value: `\`${usedPrefix}verify @user\`\n\`${usedPrefix}verifyrank @user <game>\`\n\`${usedPrefix}sendticketpanel\`\n\`${usedPrefix}sendselfiepanel\`\n\`${usedPrefix}config <setting> <value>\`` }
+        { name: '⚙️ Admin Setup', value: `\`${usedPrefix}verify @user\`\n\`${usedPrefix}sendticketpanel\`\n\`${usedPrefix}sendselfiepanel\`\n\`${usedPrefix}config <setting> <value>\`` }
       );
 
     return message.channel.send({ embeds: [helpEmbed] }).catch(() => {});
@@ -323,7 +285,7 @@ client.on('messageCreate', async (message) => {
     const reason = args.slice(1).join(' ') || 'No reason provided';
 
     if (!targetMember) return message.reply(`Usage: \`${usedPrefix}ban @user [reason]\``);
-    if (!targetMember.bannable) return message.reply('❌ I cannot ban this user (they may have higher roles than me).');
+    if (!targetMember.bannable) return message.reply('❌ I cannot ban this user.');
 
     await targetMember.ban({ reason }).catch(err => message.reply(`Failed to ban: ${err.message}`));
     logPunishment(message.guild, '🔨 Member Banned', `User: <@${targetMember.id}>\nModerator: <@${message.author.id}>\nReason:${reason}`);
@@ -357,83 +319,25 @@ client.on('messageCreate', async (message) => {
     return message.reply('⚠️ Ban request channel ID is not configured.');
   }
 
-  if (command === 'timeout' || command === 'mute') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
-      return message.reply('❌ You do not have permission to timeout members.');
-    }
-
-    const targetMember = message.mentions.members.first();
-    const durationMins = parseInt(args[1], 10);
-    const reason = args.slice(2).join(' ') || 'No reason provided';
-
-    if (!targetMember || isNaN(durationMins)) {
-      return message.reply(`Usage: \`${usedPrefix}timeout @user <minutes> [reason]\``);
-    }
-
-    await targetMember.timeout(durationMins * 60 * 1000, reason).catch(err => message.reply(`Failed to timeout: ${err.message}`));
-    logPunishment(message.guild, '🔇 Member Timed Out', `User: <@${targetMember.id}>\nDuration:${durationMins}m\nModerator: <@${message.author.id}>\nReason:${reason}`);
-    return message.channel.send(`🔇 Timed out **${targetMember.user.tag}** for **${durationMins}** minutes.`);
-  }
-
-  if (command === 'untimeout' || command === 'unmute') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
-      return message.reply('❌ You do not have permission to remove timeouts.');
-    }
-
-    const targetMember = message.mentions.members.first();
-    if (!targetMember) return message.reply(`Usage: \`${usedPrefix}untimeout @user\``);
-
-    await targetMember.timeout(null).catch(err => message.reply(`Failed to remove timeout: ${err.message}`));
-    logPunishment(message.guild, '🔊 Member Timeout Removed', `User: <@${targetMember.id}>\nModerator: <@${message.author.id}`);
-    return message.channel.send(`🔊 Removed timeout for **${targetMember.user.tag}**.`);
-  }
-
-  if (command === 'addrole' || command === 'role') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageRoles)) return;
-    const targetMember = message.mentions.members.first();
-    const roleQuery = args.slice(1).join(' ');
-    if (!targetMember || !roleQuery) return message.reply(`Usage: \`${usedPrefix}addrole @user <Role Name or ID>\``);
-
-    const role = message.guild.roles.cache.get(roleQuery.replace(/[<@&>]/g, '')) || 
-                 message.guild.roles.cache.find(r => r.name.toLowerCase() === roleQuery.toLowerCase());
-
-    if (!role) return message.reply('❌ Could not find that role.');
-    await targetMember.roles.add(role).catch(err => message.reply(`Failed: ${err.message}`));
-    return message.channel.send(`✅ Granted **${role.name}** to **${targetMember.user.tag}**.`);
-  }
-
-  if (command === 'removerole') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageRoles)) return;
-    const targetMember = message.mentions.members.first();
-    const roleQuery = args.slice(1).join(' ');
-    if (!targetMember || !roleQuery) return message.reply(`Usage: \`${usedPrefix}removerole @user <Role Name or ID>\``);
-
-    const role = message.guild.roles.cache.get(roleQuery.replace(/[<@&>]/g, '')) || 
-                 message.guild.roles.cache.find(r => r.name.toLowerCase() === roleQuery.toLowerCase());
-
-    if (!role) return message.reply('❌ Could not find that role.');
-    await targetMember.roles.remove(role).catch(err => message.reply(`Failed: ${err.message}`));
-    return message.channel.send(`🗑️ Removed **${role.name}** from **${targetMember.user.tag}**.`);
-  }
-
   if (command === 'warn') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) return;
     const target = message.mentions.members.first();
     const reason = args.slice(1).join(' ') || 'No reason provided';
     if (!target) return message.reply(`Usage: \`${usedPrefix}warn @user [reason]\``);
 
-    if (!db.warnings[target.id]) db.warnings[target.id] = [];
-    db.warnings[target.id].push({ reason, staff: message.author.tag, date: new Date().toISOString() });
-    saveDB();
+    const userWarns = db.warnings.get(target.id) || [];
+    userWarns.push({ reason, staff: message.author.tag, date: new Date().toISOString() });
+    db.warnings.set(target.id, userWarns);
+    await saveDB();
 
     logPunishment(message.guild, '⚠️ Warning Issued', `User: <@${target.id}>\nModerator: <@${message.author.id}>\nReason:${reason}`);
     target.send(`⚠️ You received a warning in **${message.guild.name}**\n**Reason:** ${reason}`).catch(() => {});
-    return message.channel.send(`Warned **${target.user.tag}**. Total warnings: **${db.warnings[target.id].length}**`);
+    return message.channel.send(`Warned **${target.user.tag}**. Total warnings: **${userWarns.length}**`);
   }
 
   if (command === 'warnings') {
     const target = message.mentions.users.first() || message.author;
-    const logs = db.warnings[target.id] || [];
+    const logs = db.warnings.get(target.id) || [];
     if (logs.length === 0) return message.reply(`**${target.username}** has no recorded warnings.`);
 
     const warnEmbed = new EmbedBuilder()
@@ -444,30 +348,6 @@ client.on('messageCreate', async (message) => {
     return message.channel.send({ embeds: [warnEmbed] });
   }
 
-  if (command === 'removewarning' || command === 'delwarn') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) return;
-    const target = message.mentions.users.first();
-    const index = parseInt(args[1], 10) - 1;
-
-    if (!target || isNaN(index) || !db.warnings[target.id]?.[index]) {
-      return message.reply(`Usage: \`${usedPrefix}removewarning @user <warning_number>\``);
-    }
-
-    const removed = db.warnings[target.id].splice(index, 1);
-    saveDB();
-    return message.reply(`✅ Removed warning #${index + 1} (*${removed[0].reason}*) from **${target.username}**.`);
-  }
-
-  if (command === 'clearwarnings') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) return;
-    const target = message.mentions.users.first();
-    if (!target) return message.reply(`Usage: \`${usedPrefix}clearwarnings @user\``);
-
-    db.warnings[target.id] = [];
-    saveDB();
-    return message.reply(`🧹 Cleared all warnings for **${target.username}**.`);
-  }
-
   if (command === 'setrank' || command === 'rankset') {
     const game = args[0]?.toLowerCase();
     const rank = args.slice(1).join(' ');
@@ -476,11 +356,12 @@ client.on('messageCreate', async (message) => {
     const topTierRanks = ['predator', 'radiant', 'grandmaster', 'champion', 'ssl', 'iridescent', 'top 250', 'godlike', 'unreal'];
     const isHighRank = topTierRanks.some(r => rank.toLowerCase().includes(r));
 
-    if (!db.userRanks[message.author.id]) db.userRanks[message.author.id] = {};
+    const userProfile = db.userRanks.get(message.author.id) || {};
 
     if (isHighRank) {
-      db.userRanks[message.author.id][game] = { rank, verified: false };
-      saveDB();
+      userProfile[game] = { rank, verified: false };
+      db.userRanks.set(message.author.id, userProfile);
+      await saveDB();
 
       if (db.config.verificationLogChannelId) {
         const vChan = message.guild.channels.cache.get(db.config.verificationLogChannelId);
@@ -500,8 +381,9 @@ client.on('messageCreate', async (message) => {
       }
       return message.reply(`Your **${game.toUpperCase()}** rank (**${rank}**) requires staff approval and was sent to verification logs!`);
     } else {
-      db.userRanks[message.author.id][game] = { rank, verified: true };
-      saveDB();
+      userProfile[game] = { rank, verified: true };
+      db.userRanks.set(message.author.id, userProfile);
+      await saveDB();
       return message.reply(`✅ Your **${game.toUpperCase()}** rank has been saved as **${rank}**!`);
     }
   }
@@ -523,7 +405,7 @@ client.on('messageCreate', async (message) => {
 
   if (command === 'rank') {
     const target = message.mentions.users.first() || message.author;
-    const profile = db.userRanks[target.id];
+    const profile = db.userRanks.get(target.id);
 
     if (!profile || Object.keys(profile).length === 0) {
       return message.reply(`**${target.username}** has no verified game ranks.`);
@@ -548,8 +430,8 @@ client.on('messageCreate', async (message) => {
 
   if (command === 'afk') {
     const reason = args.join(' ') || 'AFK';
-    db.afkUsers[message.author.id] = reason;
-    saveDB();
+    db.afkUsers.set(message.author.id, reason);
+    await saveDB();
     return message.reply(`Set your AFK: **${reason}**`);
   }
 
@@ -569,26 +451,7 @@ client.on('messageCreate', async (message) => {
 
   if (command === 'coins' || command === 'bal') {
     const target = message.mentions.users.first() || message.author;
-    return message.reply(`🪙 **${target.username}** has **${db.userCoins[target.id] || 0}** coins.`);
-  }
-
-  if (command === 'quote') {
-    const quoteMsg = args.join(' ');
-    if (!quoteMsg) return message.reply(`Usage: \`${usedPrefix}quote <text>\``);
-
-    if (db.config.quoteChannelId) {
-      const qChan = message.guild.channels.cache.get(db.config.quoteChannelId);
-      if (qChan) {
-        const qEmbed = new EmbedBuilder()
-          .setColor('#FEE75C')
-          .setTitle('💬 Server Quote')
-          .setDescription(`"${quoteMsg}"`)
-          .setFooter({ text: `Submitted by ${message.author.tag}` });
-        
-        qChan.send({ embeds: [qEmbed] });
-        return message.reply('Quote posted!');
-      }
-    }
+    return message.reply(`🪙 **${target.username}** has **${db.userCoins.get(target.id) || 0}** coins.`);
   }
 
   if (command === 'sticky') {
@@ -596,15 +459,15 @@ client.on('messageCreate', async (message) => {
     const stickyText = args.join(' ');
     if (!stickyText) return message.reply(`Usage: \`${usedPrefix}sticky <text>\``);
 
-    db.stickyMessages[message.channel.id] = stickyText;
-    saveDB();
+    db.stickyMessages.set(message.channel.id, stickyText);
+    await saveDB();
     return message.channel.send(`📌 **Sticky Note Set:**\n${stickyText}`);
   }
 
   if (command === 'unsticky') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) return;
-    delete db.stickyMessages[message.channel.id];
-    saveDB();
+    db.stickyMessages.delete(message.channel.id);
+    await saveDB();
     return message.reply('Removed sticky message.');
   }
 
@@ -643,11 +506,11 @@ client.on('messageCreate', async (message) => {
     const val = args[1];
 
     if (!key || !(key in db.config)) {
-      return message.reply(`Valid keys: \`${Object.keys(db.config).join(', ')}\``);
+      return message.reply(`Valid keys: \`${Object.keys(db.config.toObject()).join(', ')}\``);
     }
 
     db.config[key] = val;
-    saveDB();
+    await saveDB();
     return message.reply(`✅ Setting **${key}** updated to \`${val}\`.`);
   }
 });
@@ -656,10 +519,9 @@ client.on('messageCreate', async (message) => {
 // 7. INTERACTION HANDLER (BUTTONS & MODALS)
 // ==========================================
 client.on('interactionCreate', async (interaction) => {
+  const db = await getDB();
 
-  // BUTTON HANDLING
   if (interaction.isButton()) {
-
     if (interaction.customId === 'open_ticket') {
       const guild = interaction.guild;
       const user = interaction.user;
@@ -679,7 +541,6 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
-    // BAN REQUEST BUTTONS
     if (interaction.customId.startsWith('req_')) {
       const parts = interaction.customId.split('_');
       const action = parts[1];
@@ -687,8 +548,6 @@ client.on('interactionCreate', async (interaction) => {
 
       if (action === 'approve') {
         const member = await interaction.guild.members.fetch(targetId).catch(() => null);
-        
-        // Grab existing embed to preserve target info
         const originalEmbed = interaction.message.embeds[0];
         const updatedEmbed = EmbedBuilder.from(originalEmbed)
           .setColor('#57F287')
@@ -702,7 +561,6 @@ client.on('interactionCreate', async (interaction) => {
           await interaction.update({ content: `❌ Target member left or was not found, but marked as approved by <@${interaction.user.id}>.`, embeds: [updatedEmbed], components: [] });
         }
       } else if (action === 'deny') {
-        // Open Modal to get denial reason
         const modal = new ModalBuilder()
           .setCustomId(`ban_deny_modal_${targetId}`)
           .setTitle('Ban Request Denial');
@@ -721,31 +579,31 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
-    // GAME RANK APPROVAL
     if (interaction.customId.startsWith('verify_rank_')) {
       const parts = interaction.customId.split('_');
       const action = parts[2];
       const targetId = parts[3];
       const game = parts[4];
 
-      if (db.userRanks[targetId]?.[game]) {
+      const userProfile = db.userRanks.get(targetId);
+      if (userProfile && userProfile[game]) {
         if (action === 'approve') {
-          db.userRanks[targetId][game].verified = true;
-          saveDB();
+          userProfile[game].verified = true;
+          db.userRanks.set(targetId, userProfile);
+          await saveDB();
           await interaction.update({ content: `✅ Rank approved for <@${targetId}> on **${game}** by <@${interaction.user.id}>!`, components: [] });
         } else {
-          delete db.userRanks[targetId][game];
-          saveDB();
+          delete userProfile[game];
+          db.userRanks.set(targetId, userProfile);
+          await saveDB();
           await interaction.update({ content: `❌ Rank denied for <@${targetId}> on **${game}** by <@${interaction.user.id}>.`, components: [] });
         }
       }
     }
   }
 
-  // MODAL SUBMISSION HANDLING
   if (interaction.isModalSubmit()) {
     if (interaction.customId.startsWith('ban_deny_modal_')) {
-      const targetId = interaction.customId.split('_')[3];
       const denyReason = interaction.fields.getTextInputValue('deny_reason');
 
       const originalEmbed = interaction.message.embeds[0];
@@ -765,7 +623,8 @@ client.on('interactionCreate', async (interaction) => {
 // ==========================================
 // 8. HELPER LOGGING FUNCTIONS
 // ==========================================
-function logPunishment(guild, title, desc) {
+async function logPunishment(guild, title, desc) {
+  const db = await getDB();
   if (!db.config.punishmentLogChannelId) return;
   const chan = guild.channels.cache.get(db.config.punishmentLogChannelId);
   if (!chan) return;

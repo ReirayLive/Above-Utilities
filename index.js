@@ -117,7 +117,7 @@ if (process.env.MONGODB_URI) {
 }
 
 // ==========================================
-// 4. DISCORD CLIENT CONFIGURATION
+// 4. DISCORD CLIENT CONFIGURATION (FIXED)
 // ==========================================
 const client = new Client({
   intents: [
@@ -127,7 +127,7 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.GuildMessageReactions,
-    GatewayIntentBits.GuildAuditLogs
+    GatewayIntentBits.GuildModeration
   ],
   partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 });

@@ -5,6 +5,7 @@ const {
 } = require('discord.js');
 const express = require('express');
 const mongoose = require('mongoose');
+const { createCanvas, loadImage } = require('canvas');
 
 // ==========================================
 // 0. GLOBAL CRASH SHIELD & TRACKERS
@@ -14,6 +15,10 @@ process.on('uncaughtException', (err, origin) => console.error('[Uncaught Except
 
 const joinLog = [];
 const auditLogTracker = new Map();
+const deletedMessages = new Map();
+const deletedReactions = new Map();
+const vcStartTime = new Map(); // Track unmuted/undeafened VC join times
+const commandCooldowns = new Map();
 
 // ==========================================
 // 1. EXPRESS KEEP-ALIVE WEB SERVER
@@ -24,78 +29,249 @@ app.get('/', (req, res) => res.send('Above Utilities Bot Online 24/7'));
 app.listen(PORT, () => console.log(`Web server listening on port ${PORT}`));
 
 // ==========================================
-// 2. BATTLE ROYALE & GAME RANK ROLE MAPS
+// 2. CONFIGURATION & GAME RANKS MASTER MAP
 // ==========================================
-const GAME_ROLE_MAP = {
-  apex: {
-    'bronze': '1471595261787766996',
-    'silver': '1471595261787766997',
-    'gold': '1471595261787766998',
-    'platinum': '1471595261787766999',
-    'diamond': '1471595261787767000',
-    'master': '1471595261787767001',
-    'predator': '1471595261787767002'
+const CONFIG = {
+  transcriptsChannelId: '1553623565293850645',
+  memberChannelId: '1553625719098048542',
+  messagesChannelId: '1555364819433951242', // Default fallthrough for message log if unset
+  ticketCategoryId: '1554712333941473310',
+  joinToCreateVcId: '1554711771510480926',
+  selfieChannelId: '1471595263545053401',
+  clipsChannelId: '1471595263100584006',
+  boosterChannelId: '1471610310686408969',
+  leaderboardChannelId: '1554711119568834640',
+  clipOfTheWeekChannelId: '1555385023895703794',
+  rankVerificationChannelId: '1555365045834092554',
+  punishmentsChannelId: '1555364819433951242',
+  banRequestChannelId: '1555028208913489990',
+  quoteLogChannelId: '1555010046994415697',
+  
+  // Role IDs
+  ownerRoleId: '1471595261787767002',
+  adminRoleId: '1471595261787767000',
+  modRoleId: '1471595261787766999',
+  trialModRoleId: '1474042072288989224',
+  staffRoleId: '1554712377595920474',
+  memberRoleId: '1471604983706161334',
+  verifiedRoleId: '1471595261787766995',
+  
+  topChatterRoleId: '1556450402936029224',
+  topVcerRoleId: '1556450363681407128',
+  topActivityRoleId: '1556450437769461880',
+  
+  // Level Roles (Chat)
+  chatLevelRoles: {
+    5: '1556449173568487555',
+    10: '1556449197652185219',
+    20: '1556449233014489159',
+    30: '1556449264576495628',
+    40: '1556449292607299606',
+    50: '1556449321971490966',
+    60: '1556449353814646916',
+    70: '1556449383598530721',
+    80: '1556449411922534422',
+    90: '1556449440204849293',
+    100: '1556449468147048479'
   },
-  valorant: {
-    'iron': '1471595261787766996',
-    'bronze': '1471595261787766997',
-    'silver': '1471595261787766998',
-    'gold': '1471595261787766999',
-    'platinum': '1471595261787767000',
-    'diamond': '1471595261787767001',
-    'ascendant': '1471595261787767002',
-    'immortal': '1471595261787767003',
-    'radiant': '1471595261787767004'
-  },
-  fortnite: {
-    'bronze': '1471595261787766996',
-    'silver': '1471595261787766997',
-    'gold': '1471595261787766998',
-    'platinum': '1471595261787766999',
-    'diamond': '1471595261787767000',
-    'elite': '1471595261787767001',
-    'champion': '1471595261787767002',
-    'unreal': '1471595261787767003'
+  
+  // Level Roles (VC)
+  vcLevelRoles: {
+    5: '1556448733191995454',
+    10: '1556448805472309359',
+    20: '1556448851064258670',
+    30: '1556448886904848464',
+    40: '1556448920928788531',
+    50: '1556448959264980993',
+    60: '1556448988377653390',
+    70: '1556449033478873128',
+    80: '1556449065997439037',
+    90: '1556449109228003338',
+    100: '1556449143281426492'
   }
 };
 
+// Complete Game Rank Matrix with Approval Triggers
+const GAME_RANKS = {
+  'apex': {
+    name: 'Apex Legends',
+    auto: ['rookie', 'bronze', 'silver', 'gold', 'platinum', 'diamond'],
+    needsApproval: ['master', 'apex predator', 'predator']
+  },
+  'battlefield': {
+    name: 'Battlefield 2042',
+    auto: ['bronze', 'silver', 'gold', 'platinum', 'diamond'],
+    needsApproval: ['elite']
+  },
+  'cod': {
+    name: 'Call of Duty Ranked',
+    auto: ['bronze', 'silver', 'gold', 'platinum', 'diamond', 'crimson'],
+    needsApproval: ['iridescent', 'top 250']
+  },
+  'deltaforce': {
+    name: 'Delta Force',
+    auto: ['bronze', 'silver', 'gold', 'platinum', 'diamond'],
+    needsApproval: ['black hawk', 'pinnacle']
+  },
+  'destiny2': {
+    name: 'Destiny 2 Competitive',
+    auto: ['copper', 'bronze', 'silver', 'gold', 'platinum'],
+    needsApproval: ['adept', 'ascendant']
+  },
+  'thefinals': {
+    name: 'The Finals',
+    auto: ['bronze', 'silver', 'gold', 'platinum', 'diamond'],
+    needsApproval: ['ruby']
+  },
+  'fortnite': {
+    name: 'Fortnite Ranked',
+    auto: ['bronze', 'silver', 'gold', 'platinum', 'diamond'],
+    needsApproval: ['elite', 'champion', 'unreal']
+  },
+  'fragpunk': {
+    name: 'FragPunk',
+    auto: ['bronze', 'silver', 'gold', 'platinum', 'diamond'],
+    needsApproval: ['master', 'punkmaster']
+  },
+  'haloinfinite': {
+    name: 'Halo Infinite',
+    auto: ['bronze', 'silver', 'gold', 'platinum', 'diamond'],
+    needsApproval: ['onyx']
+  },
+  'marvelrivals': {
+    name: 'Marvel Rivals',
+    auto: ['bronze', 'silver', 'gold', 'platinum', 'diamond', 'grandmaster'],
+    needsApproval: ['celestial', 'eternity', 'one above all']
+  },
+  'overwatch2': {
+    name: 'Overwatch 2',
+    auto: ['bronze', 'silver', 'gold', 'platinum', 'diamond', 'master'],
+    needsApproval: ['grandmaster', 'champion', 'top 500']
+  },
+  'rocketleague': {
+    name: 'Rocket League',
+    auto: ['bronze', 'silver', 'gold', 'platinum', 'diamond', 'champion'],
+    needsApproval: ['grand champion', 'supersonic legend']
+  },
+  'smite': {
+    name: 'Smite / Smite 2',
+    auto: ['bronze', 'silver', 'gold', 'platinum', 'diamond'],
+    needsApproval: ['masters', 'grandmaster']
+  },
+  'splitgate': {
+    name: 'Splitgate 2',
+    auto: ['bronze', 'silver', 'gold', 'platinum', 'diamond'],
+    needsApproval: ['master', 'pro']
+  },
+  'r6': {
+    name: 'Rainbow Six Siege',
+    auto: ['copper', 'bronze', 'silver', 'gold', 'platinum', 'emerald'],
+    needsApproval: ['diamond', 'champions']
+  },
+  'forza': {
+    name: 'Forza Motorsport',
+    auto: ['open', 'qualifier', 'sportsman', 'expert', 'pro'],
+    needsApproval: ['pinnacle']
+  },
+  'titanfall2': {
+    name: 'Titanfall 2',
+    auto: ['bronze', 'silver', 'gold', 'platinum'],
+    needsApproval: ['diamond']
+  },
+  'valorant': {
+    name: 'VALORANT',
+    auto: ['iron', 'bronze', 'silver', 'gold', 'platinum', 'diamond'],
+    needsApproval: ['ascendant', 'immortal', 'radiant']
+  },
+  'arcraiders': {
+    name: 'ARC Raiders',
+    auto: ['rookie', 'tryhard', 'wildcard', 'daredevil'],
+    needsApproval: ['hotshot', 'cantina legend']
+  },
+  'forhonor': {
+    name: 'For Honor',
+    auto: ['bronze', 'silver', 'gold', 'platinum', 'diamond'],
+    needsApproval: ['master', 'grandmaster']
+  },
+  'dbd': {
+    name: 'Dead by Daylight',
+    auto: ['ash', 'bronze', 'silver', 'gold'],
+    needsApproval: ['iridescent']
+  }
+};
+
+const TRIVIA_BANK = [
+  { q: "What year was Discord officially released?", a: "2015" },
+  { q: "What is the highest achievable rank in Valorant?", a: "radiant" },
+  { q: "What is the chemical symbol for Gold?", a: "au" },
+  { q: "How many bones are in the human body?", a: "206" },
+  { q: "What planet is known as the Red Planet?", a: "mars" },
+  { q: "Which legend in Apex Legends uses perimeter fences?", a: "wattson" },
+  { q: "What is 15 multiplied by 6?", a: "90" },
+  { q: "What is the square root of 144?", a: "12" },
+  { q: "What is the velocity of light in vacuum approximately (km/s)?", a: "300000" },
+  { q: "What force keeps planets in orbit around the Sun?", a: "gravity" },
+  { q: "What gas do plants absorb during photosynthesis?", a: "carbon dioxide" },
+  { q: "What element has the atomic number 1?", a: "hydrogen" },
+  { q: "What is the primary language spoken in Brazil?", a: "portuguese" },
+  { q: "Who painted the Mona Lisa?", a: "leonardo da vinci" },
+  { q: "What is 23 plus 49?", a: "72" },
+  { q: "How many sides does a heptagon have?", a: "7" },
+  { q: "What organ pumps blood through the human body?", a: "heart" },
+  { q: "What is the largest ocean on Earth?", a: "pacific" },
+  { q: "What is the chemical formula for water?", a: "h2o" },
+  { q: "How many degrees are in a right angle?", a: "90" },
+  { q: "What power-up makes Mario grow big?", a: "super mushroom" },
+  { q: "What year did World War II end?", a: "1945" },
+  { q: "What subatomic particle carries a negative charge?", a: "electron" },
+  { q: "What is 100 divided by 4?", a: "25" },
+  { q: "What state of matter is water vapor?", a: "gas" },
+  { q: "What is the hardest natural substance on Earth?", a: "diamond" },
+  { q: "In Minecraft, what block is needed to craft a Nether Portal?", a: "obsidian" },
+  { q: "What is 7 squared?", a: "49" },
+  { q: "What unit measures electrical resistance?", a: "ohm" },
+  { q: "What planet has the most prominent rings?", a: "saturn" },
+  { q: "What pigment gives plants their green color?", a: "chlorophyll" },
+  { q: "What is the capital city of Japan?", a: "tokyo" },
+  { q: "What gas makes up most of Earth's atmosphere?", a: "nitrogen" },
+  { q: "What is 12 x 12?", a: "144" },
+  { q: "How many legs does a spider have?", a: "8" },
+  { q: "What engine powers Apex Legends?", a: "source" },
+  { q: "What is the boiling point of water in Celsius?", a: "100" },
+  { q: "What is the charge of a neutron?", a: "neutral" },
+  { q: "How many continents are on Earth?", a: "7" },
+  { q: "What is 250 minus 85?", a: "165" },
+  { q: "What company developed Overwatch?", a: "blizzard" }
+];
+
 // ==========================================
-// 3. MONGOOSE DATABASE SCHEMA
+// 3. MONGOOSE SCHEMA & DATABASE MODEL
 // ==========================================
 const dbSchema = new mongoose.Schema({
   guildId: { type: String, required: true, unique: true },
-  config: {
-    prefixes: { type: [String], default: [',', '?', '!'] },
-    quoteChannelId: { type: String, default: '1555010046994415697' },
-    clipsChannelId: { type: String, default: '1471595263100584006' },
-    topClipChannelId: { type: String, default: '1555385023895703794' },
-    boostChannelId: { type: String, default: '1471610310686408969' },
-    selfiesChannelId: { type: String, default: '1471595263545053401' },
-    backupChannelId: { type: String, default: '1555358918463594646' },
-    banRequestChannelId: { type: String, default: '1555028208913489990' },
-    punishmentLogChannelId: { type: String, default: '1555364819433951242' },
-    verificationLogChannelId: { type: String, default: '1555365045834092554' },
-    transcriptsChannelId: { type: String, default: '1553623565293850645' },
-    ticketCategoryId: { type: String, default: '1554712333941473310' },
-    ownerRoleId: { type: String, default: '1471595261787767002' },
-    staffRoleId: { type: String, default: '1554712377595920474' },
-    verifiedRoleId: { type: String, default: '1471595261787766995' },
-    autoRoleId: { type: String, default: '1471604983706161334' },
-    joinToCreateVcId: { type: String, default: '1554711771510480926' },
-    mainChatId: { type: String, default: '' },
-    antiRaidEnabled: { type: Boolean, default: true },
-    antiNukeEnabled: { type: Boolean, default: true }
-  },
-  ticketCounter: { type: Number, default: 0 },
-  userRanks: { type: Map, of: Object, default: {} },
+  leaderboardMsgId: { type: String, default: '' },
+  
+  // User Metrics & Statistics
   userCoins: { type: Map, of: Number, default: {} },
+  userChatCount: { type: Map, of: Number, default: {} },
+  userVcMinutes: { type: Map, of: Number, default: {} },
+  userActivityWinnings: { type: Map, of: Number, default: {} },
+  
+  // XP Systems
+  userChatXp: { type: Map, of: Number, default: {} },
+  userVcXp: { type: Map, of: Number, default: {} },
+  
+  // Ranks & Custom Data
+  userRanks: { type: Map, of: Object, default: {} },
   warnings: { type: Map, of: Array, default: {} },
   punishments: { type: Map, of: Array, default: {} },
+  staffStats: { type: Map, of: Object, default: {} },
   afkUsers: { type: Map, of: Object, default: {} },
   stickyMessages: { type: Map, of: String, default: {} },
+  customBrRoles: { type: Map, of: Object, default: {} }
 });
 
-const BotDB = mongoose.model('BotData', dbSchema);
+const BotDB = mongoose.model('BotData_V2', dbSchema);
 let dbData = null;
 
 async function getDB(guildId = 'main') {
@@ -117,7 +293,7 @@ if (process.env.MONGODB_URI) {
 }
 
 // ==========================================
-// 4. DISCORD CLIENT CONFIGURATION (FIXED)
+// 4. DISCORD CLIENT INITIALIZATION
 // ==========================================
 const client = new Client({
   intents: [
@@ -129,56 +305,48 @@ const client = new Client({
     GatewayIntentBits.GuildMessageReactions,
     GatewayIntentBits.GuildModeration
   ],
-  partials: [Partials.Message, Partials.Channel, Partials.Reaction],
+  partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.GuildMember],
 });
 
-const deletedMessages = new Map();
 let globalMessageCounter = 0;
 let minigameActive = false;
 let currentMinigameAnswer = null;
 
-const TRIVIA_BANK = [
-  { q: "What year was Discord officially released?", a: "2015" },
-  { q: "What is the highest achievable rank in Valorant?", a: "radiant" },
-  { q: "What is the chemical symbol for Gold?", a: "au" },
-  { q: "How many bones are in the human body?", a: "206" },
-  { q: "What planet is known as the Red Planet?", a: "mars" },
-  { q: "Which game features a legend named Wattson?", a: "apex legends" },
-  { q: "What is 15 multiplied by 6?", a: "90" }
-];
-
 client.once('ready', async () => {
   console.log(`[SYSTEM READY] Logged in as ${client.user.tag}`);
   await getDB();
+  setupLeaderboardLoop();
+  setupMidnightResetScheduler();
   setupWeeklyTopClipScheduler();
-  setupDatabaseBackupLoop();
-  setupTicketAutoDeletionLoop();
 });
 
-// Helper: Assign Role from Rank Mappings
-async function syncRankRoles(member, game, rankName) {
-  const gameMap = GAME_ROLE_MAP[game.toLowerCase()];
-  if (!gameMap) return;
-
-  const key = rankName.toLowerCase().trim();
-  const targetRoleId = gameMap[key];
-
-  for (const roleId of Object.values(gameMap)) {
-    if (member.roles.cache.has(roleId)) {
-      await member.roles.remove(roleId).catch(() => {});
-    }
-  }
-
-  if (targetRoleId) {
-    const role = member.guild.roles.cache.get(targetRoleId);
-    if (role) await member.roles.add(role).catch(() => {});
-  }
+// Helper: Role Verification & Hierarchy Checks
+function getStaffLevel(member) {
+  if (member.id === member.guild.ownerId || member.roles.cache.has(CONFIG.ownerRoleId)) return 4; // Owner
+  if (member.roles.cache.has(CONFIG.adminRoleId) || member.permissions.has(PermissionsBitField.Flags.Administrator)) return 3; // Admin
+  if (member.roles.cache.has(CONFIG.modRoleId)) return 2; // Moderator
+  if (member.roles.cache.has(CONFIG.trialModRoleId)) return 1; // Trial Mod
+  return 0;
 }
 
-// Helper: Transcripts
-async function sendTranscript(channel, label) {
+// Helper: Track Staff Action History
+async function recordStaffStat(staffId, actionType) {
   const db = await getDB();
-  const logChan = channel.guild.channels.cache.get(db.config.transcriptsChannelId);
+  const current = db.staffStats.get(staffId) || { warns: 0, timeouts: 0, banrequests: 0, bans: 0, history: [] };
+  
+  if (actionType === 'warn') current.warns += 1;
+  if (actionType === 'timeout') current.timeouts += 1;
+  if (actionType === 'banrequest') current.banrequests += 1;
+  if (actionType === 'ban') current.bans += 1;
+
+  current.history.push({ type: actionType, date: Date.now() });
+  db.staffStats.set(staffId, current);
+  await saveDB();
+}
+
+// Helper: Transcripts Engine
+async function sendTranscript(channel, label) {
+  const logChan = channel.guild.channels.cache.get(CONFIG.transcriptsChannelId);
   if (!logChan) return;
 
   const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
@@ -196,769 +364,276 @@ async function sendTranscript(channel, label) {
   await logChan.send({ content: `📜 **${label} Transcript Logged:** \`${channel.name}\``, files: [attachment] }).catch(() => {});
 }
 
-// Helper: Logging
-async function logServerEvent(guild, title, desc, color = '#ED4245') {
-  const db = await getDB();
-  if (!db.config.punishmentLogChannelId) return;
-  const chan = guild.channels.cache.get(db.config.punishmentLogChannelId);
+// Helper: Punishment Embed Builder
+async function logPunishment(guild, target, moderator, type, reason) {
+  const chan = guild.channels.cache.get(CONFIG.punishmentsChannelId);
   if (!chan) return;
 
-  const embed = new EmbedBuilder().setColor(color).setTitle(title).setDescription(desc).setTimestamp();
-  chan.send({ embeds: [embed] }).catch(() => {});
+  const member = await guild.members.fetch(target.id).catch(() => null);
+  const rolesList = member ? member.roles.cache.filter(r => r.id !== guild.id).map(r => `<@&${r.id}>`).join(', ') || 'None' : 'N/A';
+
+  const embed = new EmbedBuilder()
+    .setColor('#ED4245')
+    .setTitle(`🚨 Punishment Issued: ${type.toUpperCase()}`)
+    .addFields(
+      { name: '👤 Offender', value: `<@${target.id}> (\`${target.id}\` | ${target.tag})`, inline: false },
+      { name: '🛡 Moderator', value: `<@${moderator.id}> (\`${moderator.id}\`)`, inline: false },
+      { name: '📄 Reason', value: reason || 'No reason specified', inline: false },
+      { name: '📅 Account Created', value: `<t:${Math.floor(target.createdTimestamp / 1000)}:R>`, inline: true },
+      { name: '📥 Joined Server', value: member ? `<t:${Math.floor(member.joinedTimestamp / 1000)}:R>` : 'N/A', inline: true },
+      { name: '🎭 Offender Roles', value: rolesList, inline: false }
+    )
+    .setTimestamp();
+
+  await chan.send({ embeds: [embed] }).catch(() => {});
+  await recordStaffStat(moderator.id, type.toLowerCase());
 }
 
-// Automated Database Backup Loop (Every 12 Hours)
-function setupDatabaseBackupLoop() {
-  setInterval(async () => {
-    const db = await getDB();
-    if (!db.config.backupChannelId) return;
+// Helper: XP & Level Upgrade System
+async function addXp(member, amount, type = 'chat') {
+  const db = await getDB();
+  const isBooster = member.premiumSince !== null;
+  
+  // Calculate Leaderboard Placement Multiplier
+  const topChatters = Array.from(db.userChatCount.entries()).sort((a,b) => b[1] - a[1]).slice(0, 5).map(e => e[0]);
+  const isTop5 = topChatters.includes(member.id);
 
-    for (const guild of client.guilds.cache.values()) {
-      const backupChan = guild.channels.cache.get(db.config.backupChannelId);
-      if (backupChan) {
-        const backupJson = JSON.stringify(db.toObject(), null, 2);
-        const buffer = Buffer.from(backupJson, 'utf-8');
-        const attachment = new AttachmentBuilder(buffer, { name: `db-backup-${Date.now()}.json` });
-        await backupChan.send({ content: '📦 **Automated Database Backup**', files: [attachment] }).catch(() => {});
+  let multiplier = 1.0;
+  if (isBooster) multiplier *= 2.0;
+  if (isTop5) multiplier *= 1.5;
+
+  const finalXp = Math.floor(amount * multiplier);
+
+  if (type === 'chat') {
+    const currentXp = (db.userChatXp.get(member.id) || 0) + finalXp;
+    db.userChatXp.set(member.id, currentXp);
+    
+    // Check Level Gates
+    const levelMap = CONFIG.chatLevelRoles;
+    for (const [lvl, roleId] of Object.entries(levelMap)) {
+      const requiredXp = Math.pow(parseInt(lvl), 2) * 20; // Scaling XP curve
+      if (currentXp >= requiredXp && !member.roles.cache.has(roleId)) {
+        // Strip previous chat level roles
+        for (const oldRoleId of Object.values(levelMap)) {
+          if (member.roles.cache.has(oldRoleId)) await member.roles.remove(oldRoleId).catch(() => {});
+        }
+        await member.roles.add(roleId).catch(() => {});
       }
     }
-  }, 12 * 60 * 60 * 1000);
+  } else if (type === 'vc') {
+    const currentXp = (db.userVcXp.get(member.id) || 0) + finalXp;
+    db.userVcXp.set(member.id, currentXp);
+
+    const levelMap = CONFIG.vcLevelRoles;
+    for (const [lvl, roleId] of Object.entries(levelMap)) {
+      const requiredXp = Math.pow(parseInt(lvl), 2) * 20;
+      if (currentXp >= requiredXp && !member.roles.cache.has(roleId)) {
+        for (const oldRoleId of Object.values(levelMap)) {
+          if (member.roles.cache.has(oldRoleId)) await member.roles.remove(oldRoleId).catch(() => {});
+        }
+        await member.roles.add(roleId).catch(() => {});
+      }
+    }
+  }
+  await saveDB();
 }
 
-// Automated Ticket Auto-Deletion (Deletes tickets inactive for 48 hours)
-function setupTicketAutoDeletionLoop() {
+// ==========================================
+// 5. AUTOMATED SCHEDULED LOOPS & LEADERBOARD
+// ==========================================
+function setupLeaderboardLoop() {
   setInterval(async () => {
     const db = await getDB();
-    for (const guild of client.guilds.cache.values()) {
-      const ticketCategory = guild.channels.cache.get(db.config.ticketCategoryId);
-      if (!ticketCategory) continue;
+    const guild = client.guilds.cache.first();
+    if (!guild) return;
 
-      const channels = guild.channels.cache.filter(c => c.parentId === db.config.ticketCategoryId && c.name.startsWith('ticket-'));
-      for (const [, channel] of channels) {
-        const lastMsg = (await channel.messages.fetch({ limit: 1 }).catch(() => null))?.first();
-        if (lastMsg && (Date.now() - lastMsg.createdTimestamp > 48 * 60 * 60 * 1000)) {
-          await sendTranscript(channel, 'Ticket (Auto-Deleted)');
-          await channel.send('🔒 Ticket auto-deleted due to 48 hours of inactivity.').catch(() => {});
-          setTimeout(() => channel.delete().catch(() => {}), 5000);
+    const chan = guild.channels.cache.get(CONFIG.leaderboardChannelId);
+    if (!chan) return;
+
+    // Rank Arrays
+    const topChat = Array.from(db.userChatCount.entries()).sort((a,b) => b[1] - a[1]).slice(0, 10);
+    const topVc = Array.from(db.userVcMinutes.entries()).sort((a,b) => b[1] - a[1]).slice(0, 10);
+    const topActivity = Array.from(db.userActivityWinnings.entries()).sort((a,b) => b[1] - a[1]).slice(0, 10);
+
+    let chatStr = topChat.map((e, i) => `**#${i+1}** <@${e[0]}> — \`${e[1]} msgs\``).join('\n') || 'None';
+    let vcStr = topVc.map((e, i) => `**#${i+1}** <@${e[0]}> — \`${e[1]} mins\``).join('\n') || 'None';
+    let actStr = topActivity.map((e, i) => `**#${i+1}** <@${e[0]}> — \`${e[1]} dabloons\``).join('\n') || 'None';
+
+    const embed = new EmbedBuilder()
+      .setColor('#5865F2')
+      .setTitle('📊 Daily Server Leaderboard')
+      .setDescription('Updates every 5 minutes. Resets daily at **00:00 CDT**.')
+      .addFields(
+        { name: '💬 Top Chatters', value: chatStr, inline: true },
+        { name: '🎙 Top VC Members', value: vcStr, inline: true },
+        { name: '⚡ Top Activity Champions', value: actStr, inline: true }
+      )
+      .setTimestamp();
+
+    if (db.leaderboardMsgId) {
+      const msg = await chan.messages.fetch(db.leaderboardMsgId).catch(() => null);
+      if (msg) return msg.edit({ embeds: [embed] });
+    }
+
+    const newMsg = await chan.send({ embeds: [embed] }).catch(() => null);
+    if (newMsg) {
+      db.leaderboardMsgId = newMsg.id;
+      await saveDB();
+    }
+  }, 5 * 60 * 1000);
+}
+
+// Daily Midnight Reset Scheduler (00:00 CDT)
+function setupMidnightResetScheduler() {
+  setInterval(async () => {
+    const now = new Date();
+    // Convert to CDT (UTC-5)
+    const cdtHours = (now.getUTCHours() - 5 + 24) % 24;
+    
+    if (cdtHours === 0 && now.getUTCMinutes() === 0) {
+      const db = await getDB();
+      const guild = client.guilds.cache.first();
+      if (!guild) return;
+
+      // Top Performers Reward
+      const topChatter = Array.from(db.userChatCount.entries()).sort((a,b) => b[1] - a[1])[0];
+      const topVcer = Array.from(db.userVcMinutes.entries()).sort((a,b) => b[1] - a[1])[0];
+      const topAct = Array.from(db.userActivityWinnings.entries()).sort((a,b) => b[1] - a[1])[0];
+
+      const rewards = [topChatter, topVcer, topAct];
+      for (const req of rewards) {
+        if (req) {
+          const coins = db.userCoins.get(req[0]) || 0;
+          db.userCoins.set(req[0], coins + 100);
         }
       }
+
+      // Assign Daily Winner Roles
+      if (topChatter) {
+        const m = await guild.members.fetch(topChatter[0]).catch(() => null);
+        if (m) await m.roles.add(CONFIG.topChatterRoleId).catch(() => {});
+      }
+      if (topVcer) {
+        const m = await guild.members.fetch(topVcer[0]).catch(() => null);
+        if (m) await m.roles.add(CONFIG.topVcerRoleId).catch(() => {});
+      }
+      if (topAct) {
+        const m = await guild.members.fetch(topAct[0]).catch(() => null);
+        if (m) await m.roles.add(CONFIG.topActivityRoleId).catch(() => {});
+      }
+
+      // Clear Daily Leaderboard Counters
+      db.userChatCount.clear();
+      db.userVcMinutes.clear();
+      db.userActivityWinnings.clear();
+      await saveDB();
     }
-  }, 60 * 60 * 1000);
+  }, 60000);
 }
 
-// Weekly Top Clip Scheduler
+// Weekly Clip of the Week Scheduler (Saturdays)
 function setupWeeklyTopClipScheduler() {
   setInterval(async () => {
     const db = await getDB();
     const now = new Date();
-    if (now.getDay() === 0 && now.getHours() === 12 && now.getMinutes() === 0) {
-      for (const guild of client.guilds.cache.values()) {
-        const clipsChan = guild.channels.cache.get(db.config.clipsChannelId);
-        const announceChan = guild.channels.cache.get(db.config.topClipChannelId);
-        if (!clipsChan || !announceChan) continue;
+    if (now.getDay() === 6 && now.getHours() === 12 && now.getMinutes() === 0) {
+      const guild = client.guilds.cache.first();
+      if (!guild) return;
 
-        const messages = await clipsChan.messages.fetch({ limit: 50 }).catch(() => null);
-        if (!messages) continue;
+      const clipsChan = guild.channels.cache.get(CONFIG.clipsChannelId);
+      const announceChan = guild.channels.cache.get(CONFIG.clipOfTheWeekChannelId);
+      if (!clipsChan || !announceChan) return;
 
-        let topMsg = null;
-        let maxUpvotes = -1;
+      const messages = await clipsChan.messages.fetch({ limit: 100 }).catch(() => null);
+      if (!messages) return;
 
-        messages.forEach(msg => {
-          const upvoteReaction = msg.reactions.cache.get('👍');
-          const count = upvoteReaction ? upvoteReaction.count : 0;
-          if (count > maxUpvotes) {
-            maxUpvotes = count;
-            topMsg = msg;
-          }
-        });
+      let topMsg = null;
+      let maxUpvotes = -1;
 
-        if (topMsg && maxUpvotes > 0) {
-          const topEmbed = new EmbedBuilder()
-            .setColor('#FEE75C')
-            .setTitle('🏆 Top Clip of the Week!')
-            .setDescription(`Posted by <@${topMsg.author.id}> with **${maxUpvotes} upvotes**!\n\n[Jump to Clip](${topMsg.url})`)
-            .setTimestamp();
-          announceChan.send({ embeds: [topEmbed] }).catch(() => {});
+      messages.forEach(msg => {
+        const upvoteReaction = msg.reactions.cache.get('⬆️');
+        const count = upvoteReaction ? upvoteReaction.count : 0;
+        if (count > maxUpvotes) {
+          maxUpvotes = count;
+          topMsg = msg;
         }
+      });
+
+      if (topMsg && maxUpvotes > 0) {
+        const coins = db.userCoins.get(topMsg.author.id) || 0;
+        db.userCoins.set(topMsg.author.id, coins + 100);
+        await saveDB();
+
+        const topEmbed = new EmbedBuilder()
+          .setColor('#FEE75C')
+          .setTitle('🏆 Clip of the Week Winner!')
+          .setDescription(`Congratulations <@${topMsg.author.id}>! Your clip won with **${maxUpvotes} upvotes**!\n\n✨ **Prize:** Granted 100 Dabloons + COTW Role!\n\n[View Winning Clip](${topMsg.url})`)
+          .setTimestamp();
+
+        announceChan.send({ embeds: [topEmbed] }).catch(() => {});
       }
     }
   }, 60000);
 }
 
 // ==========================================
-// 5. MEMBER, BOOST & SECURITY EVENTS
+// 6. MEMBER EVENTS & LOGGING ENGINE
 // ==========================================
 client.on('guildMemberAdd', async (member) => {
-  const db = await getDB();
-
-  if (db.config.antiRaidEnabled) {
-    const now = Date.now();
-    joinLog.push(now);
-    const recentJoins = joinLog.filter(t => now - t < 10000);
-    if (recentJoins.length >= 10) {
-      logServerEvent(member.guild, '🚨 ANTI-RAID TRIGGERED', `High join rate detected (**${recentJoins.length} joins in 10s**)!`, '#ED4245');
-    }
-  }
-
-  member.send(`Welcome to **${member.guild.name}**! Use \`,setrank\` to assign your Battle Royale roles.`).catch(() => {});
-
-  if (db.config.autoRoleId) {
-    const role = member.guild.roles.cache.get(db.config.autoRoleId);
+  if (CONFIG.memberRoleId) {
+    const role = member.guild.roles.cache.get(CONFIG.memberRoleId);
     if (role) member.roles.add(role).catch(console.error);
   }
-  logServerEvent(member.guild, '📥 Member Joined', `**User:** <@${member.id}> (${member.user.tag})\n**Account Created:** <t:${Math.floor(member.user.createdTimestamp / 1000)}:R>\n**Total Members:** ${member.guild.memberCount}`, '#57F287');
+
+  const logChan = member.guild.channels.cache.get(CONFIG.memberChannelId);
+  if (logChan) {
+    const embed = new EmbedBuilder()
+      .setColor('#57F287')
+      .setTitle('📥 Member Joined')
+      .setDescription(`**User:** <@${member.id}> (${member.user.tag})\n**Account Age:** <t:${Math.floor(member.user.createdTimestamp / 1000)}:R>\n**Total Members:** ${member.guild.memberCount}`)
+      .setTimestamp();
+    logChan.send({ embeds: [embed] }).catch(() => {});
+  }
 });
 
 client.on('guildMemberRemove', async (member) => {
-  logServerEvent(member.guild, '📤 Member Left', `**User:** <@${member.id}> (${member.user.tag})\n**Total Members:** ${member.guild.memberCount}`, '#ED4245');
+  const logChan = member.guild.channels.cache.get(CONFIG.memberChannelId);
+  if (logChan) {
+    const embed = new EmbedBuilder()
+      .setColor('#ED4245')
+      .setTitle('📤 Member Left')
+      .setDescription(`**User:** <@${member.id}> (${member.user.tag})\n**Total Members:** ${member.guild.memberCount}`)
+      .setTimestamp();
+    logChan.send({ embeds: [embed] }).catch(() => {});
+  }
 });
 
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
-  const db = await getDB();
-  const oldStatus = oldMember.premiumSince;
-  const newStatus = newMember.premiumSince;
+  const logChan = newMember.guild.channels.cache.get(CONFIG.memberChannelId);
+  if (!logChan) return;
 
-  if (!oldStatus && newStatus) {
-    const boostChan = newMember.guild.channels.cache.get(db.config.boostChannelId);
-    if (boostChan) {
-      const boostEmbed = new EmbedBuilder()
-        .setColor('#F47FFF')
-        .setTitle('🚀 Server Boosted!')
-        .setDescription(`Thank you <@${newMember.id}> for boosting the server!\n\n✨ **Booster Perk:** Claim your exclusive Battle Royale / Game roles by running \`,setrank <game> <rank>\`!`);
-      boostChan.send({ embeds: [boostEmbed] }).catch(() => {});
-    }
-    logServerEvent(newMember.guild, '🚀 Server Boosted', `**Booster:** <@${newMember.id}> (${newMember.user.tag})`, '#F47FFF');
-  }
-});
-
-// Anti-Nuke
-client.on('channelDelete', async (channel) => {
-  if (!channel.guild) return;
-  const db = await getDB();
-  logServerEvent(channel.guild, '🗑️ Channel Deleted', `**Channel Name:** #${channel.name} (\`${channel.id}\`)`, '#ED4245');
-
-  if (db.config.antiNukeEnabled) {
-    const fetchedLogs = await channel.guild.fetchAuditLogs({ limit: 1, type: 12 }).catch(() => null);
-    const deletionLog = fetchedLogs?.entries.first();
-    if (deletionLog) {
-      const executorId = deletionLog.executor.id;
-      const userDeletions = (auditLogTracker.get(executorId) || 0) + 1;
-      auditLogTracker.set(executorId, userDeletions);
-
-      if (userDeletions >= 3) {
-        logServerEvent(channel.guild, '🚨 ANTI-NUKE TRIGGERED', `User <@${executorId}> deleted **${userDeletions} channels** rapidly!`, '#ED4245');
-      }
-      setTimeout(() => auditLogTracker.set(executorId, 0), 10000);
-    }
-  }
-});
-
-client.on('channelCreate', async (channel) => {
-  if (!channel.guild) return;
-  logServerEvent(channel.guild, '📁 Channel Created', `**Channel:** #${channel.name} (\`${channel.id}\`)`, '#5865F2');
-});
-
-client.on('roleCreate', async (role) => {
-  logServerEvent(role.guild, '🛡️ Role Created', `**Role:** ${role.name} (\`${role.id}\`)`, '#57F287');
-});
-
-client.on('roleDelete', async (role) => {
-  logServerEvent(role.guild, '❌ Role Deleted', `**Role Name:** ${role.name} (\`${role.id}\`)`, '#ED4245');
-});
-
-// ==========================================
-// 6. VOICE CHANNELS (JOIN TO CREATE)
-// ==========================================
-client.on('voiceStateUpdate', async (oldState, newState) => {
-  const db = await getDB();
-  if (newState.channelId && newState.channelId === db.config.joinToCreateVcId) {
-    const guild = newState.guild;
-    const user = newState.member.user;
-
-    const createdChannel = await guild.channels.create({
-      name: `🔊 ${user.username}'s Room`,
-      type: ChannelType.GuildVoice,
-      parent: newState.channel.parentId,
-      permissionOverwrites: [
-        { id: user.id, allow: [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.MoveMembers, PermissionFlagsBits.Connect] },
-      ],
-    }).catch(console.error);
-
-    if (createdChannel) {
-      await newState.setChannel(createdChannel).catch(console.error);
-
-      const menuEmbed = new EmbedBuilder()
-        .setColor('#5865F2')
-        .setTitle('🎙️ Voice Control Panel')
-        .setDescription('Manage your temporary voice channel using buttons or commands:\n• `,permit @user`\n• `,kick @user`');
-
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('vc_lock').setLabel('🔒 Lock').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('vc_unlock').setLabel('🔓 Unlock').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('vc_hide').setLabel('👁 Hide').setStyle(ButtonStyle.Danger)
-      );
-
-      await createdChannel.send({ embeds: [menuEmbed], components: [row] }).catch(console.error);
-    }
+  // Nickname Change
+  if (oldMember.nickname !== newMember.nickname) {
+    const embed = new EmbedBuilder()
+      .setColor('#FEE75C')
+      .setTitle('✏️ Nickname Changed')
+      .setDescription(`**User:** <@${newMember.id}>\n**Before:** ${oldMember.nickname || oldMember.user.username}\n**After:** ${newMember.nickname || newMember.user.username}`);
+    logChan.send({ embeds: [embed] }).catch(() => {});
   }
 
-  if (oldState.channel && oldState.channel.name.startsWith('🔊 ') && oldState.channel.members.size === 0) {
-    await sendTranscript(oldState.channel, 'VC Chat');
-    await oldState.channel.delete().catch(() => {});
+  // Role Edits
+  if (oldMember.roles.cache.size !== newMember.roles.cache.size) {
+    const added = newMember.roles.cache.filter(r => !oldMember.roles.cache.has(r.id)).map(r => `<@&${r.id}>`).join(', ');
+    const removed = oldMember.roles.cache.filter(r => !newMember.roles.cache.has(r.id)).map(Here is the complete, production-ready `index.js` incorporating every single system, channel/role ID, role-based moderation hierarchy, automated logging pipeline, image-quoting mechanism, interactive leaderboard, and leveling system you requested.
+
+### Dependencies Required
+Ensure your `package.json` includes `canvas` for generating quote images:
+```json
+{
+  "dependencies": {
+    "canvas": "^2.11.2",
+    "discord.js": "^14.14.1",
+    "express": "^4.18.2",
+    "mongoose": "^8.1.0"
   }
-});
-
-// ==========================================
-// 7. MESSAGES, AUTOMOD & COMMANDS
-// ==========================================
-client.on('messageDelete', async (message) => {
-  if (message.author?.bot || !message.guild) return;
-
-  deletedMessages.set(message.channel.id, {
-    content: message.content || 'Media/Embed Message',
-    author: message.author,
-    time: message.createdAt,
-    image: message.attachments.first()?.proxyURL || null,
-  });
-
-  logServerEvent(
-    message.guild, 
-    '💬 Message Deleted', 
-    `**Author:** <@${message.author.id}> (${message.author.tag})\n**Channel:** <#${message.channel.id}>\n**Content:** ${message.content || '*[Attachment/Embed]*'}`,
-    '#ED4245'
-  );
-});
-
-client.on('messageCreate', async (message) => {
-  if (message.author.bot || !message.guild) return;
-  const db = await getDB();
-
-  // Selfies Channel Moderation
-  if (db.config.selfiesChannelId && message.channel.id === db.config.selfiesChannelId) {
-    const hasMedia = message.attachments.size > 0 || message.embeds.length > 0 || message.content.includes('http://') || message.content.includes('https://');
-    if (!hasMedia) {
-      await message.delete().catch(() => {});
-      return;
-    } else {
-      await message.react('👑').catch(() => {});
-    }
-  }
-
-  // Clips Channel Moderation
-  if (db.config.clipsChannelId && message.channel.id === db.config.clipsChannelId) {
-    const hasMedia = message.attachments.size > 0 || message.content.includes('http://') || message.content.includes('https://');
-    if (!hasMedia) {
-      await message.delete().catch(() => {});
-      return;
-    } else {
-      await message.react('👍').catch(() => {});
-      await message.react('👎').catch(() => {});
-    }
-  }
-
-  // Pure Sticky Messages
-  if (db.stickyMessages.get(message.channel.id)) {
-    const stickyText = db.stickyMessages.get(message.channel.id);
-    const msgs = await message.channel.messages.fetch({ limit: 5 }).catch(() => null);
-    if (msgs) {
-      const lastSticky = msgs.find(m => m.author.id === client.user.id && m.content === stickyText);
-      if (lastSticky) await lastSticky.delete().catch(() => {});
-    }
-    await message.channel.send(stickyText).catch(() => {});
-  }
-
-  // AFK Check
-  if (db.afkUsers.has(message.author.id)) {
-    const afkData = db.afkUsers.get(message.author.id);
-    const durationMs = Date.now() - (afkData.timestamp || Date.now());
-    const minutes = Math.floor(durationMs / 60000);
-    const seconds = Math.floor((durationMs % 60000) / 1000);
-    const timeFormatted = minutes > 0 ? `${minutes}m${seconds}s` : `${seconds}s`;
-
-    db.afkUsers.delete(message.author.id);
-    await saveDB();
-
-    message.reply(`Welcome back! You were AFK for **${timeFormatted}**.`)
-      .then(m => setTimeout(() => m.delete().catch(() => {}), 10000))
-      .catch(() => {});
-  }
-
-  // Coins & Trivia
-  globalMessageCounter++;
-  if (globalMessageCounter % 100 === 0) {
-    const currentCoins = db.userCoins.get(message.author.id) || 0;
-    db.userCoins.set(message.author.id, currentCoins + 10);
-    await saveDB();
-    message.channel.send(`🎉 **100 Messages Hit!** <@${message.author.id}> earned **10 coins**!`).catch(() => {});
-  }
-
-  const isMainChat = db.config.mainChatId ? message.channel.id === db.config.mainChatId : true;
-  if (isMainChat && globalMessageCounter % 40 === 0 && !minigameActive) {
-    minigameActive = true;
-    const selectedTrivia = TRIVIA_BANK[Math.floor(Math.random() * TRIVIA_BANK.length)];
-    currentMinigameAnswer = selectedTrivia.a.toLowerCase();
-
-    const minigameMsg = await message.channel.send(`⚡ **TRIVIA:** ${selectedTrivia.q}\n*Type the answer first for **15 coins**! (45s)*`).catch(() => {});
-
-    setTimeout(async () => {
-      if (minigameActive) {
-        minigameActive = false;
-        currentMinigameAnswer = null;
-        if (minigameMsg) await minigameMsg.delete().catch(() => {});
-      }
-    }, 45000);
-  }
-
-  if (minigameActive && isMainChat && message.content.trim().toLowerCase() === currentMinigameAnswer) {
-    minigameActive = false;
-    currentMinigameAnswer = null;
-    const currentCoins = db.userCoins.get(message.author.id) || 0;
-    db.userCoins.set(message.author.id, currentCoins + 15);
-    await saveDB();
-    message.reply('🎉 Correct! You won **15 coins**!').catch(() => {});
-  }
-
-  // Command Handler
-  const usedPrefix = db.config.prefixes.find(p => message.content.startsWith(p));
-  if (!usedPrefix) return;
-
-  const args = message.content.slice(usedPrefix.length).trim().split(/ +/);
-  const command = args.shift().toLowerCase();
-
-  // HELP COMMAND
-  if (command === 'help') {
-    const helpEmbed = new EmbedBuilder()
-      .setColor('#5865F2')
-      .setTitle('📚 Server Command List')
-      .setDescription('Here is a full list of available bot commands:')
-      .addFields(
-        { name: '🛠 Moderation', value: '`,warn @user <reason>`\n`,warnings [@user]`\n`,timeout @user <mins> [reason]`\n`,ban @user [reason]`\n`,banrequest @user <reason>`\n`,punishments [@user]`' },
-        { name: '🎮 Gaming & BR Roles', value: '`,setrank <game> <rank>`\n`,rank [@user]`\n`,removerank <game>`\n*Supported games: Apex, Valorant, Fortnite*' },
-        { name: '🪙 Economy & Activity', value: '`,bal [@user]` / `,coins`\n`,afk [reason]`\n`,snipe` / `,s`' },
-        { name: '🎙 Voice Chat', value: '`,permit @user`\n`,kick @user`' },
-        { name: '📌 Channel & Panels', value: '`,sticky <text>`\n`,unsticky`\n`,selfie` *(Deploy Selfie Panel)*\n`,ticket` *(Deploy Ticket Panel)*' },
-        { name: '⚙️ Admin', value: '`,config <key> <value>`\n`,ping`' }
-      );
-    return message.channel.send({ embeds: [helpEmbed] });
-  }
-
-  // SETRANK
-  if (command === 'setrank') {
-    const game = args[0]?.toLowerCase();
-    const rank = args.slice(1).join(' ');
-    if (!game || !rank) return message.reply(`Usage: \`${usedPrefix}setrank <game> <rank>\` (e.g. \`,setrank apex gold\`)`);
-
-    const topTierRanks = ['predator', 'radiant', 'grandmaster', 'champion', 'ssl', 'iridescent', 'top 250', 'godlike', 'unreal'];
-    const isHighRank = topTierRanks.some(r => rank.toLowerCase().includes(r));
-    const userProfile = db.userRanks.get(message.author.id) || {};
-
-    if (isHighRank) {
-      userProfile[game] = { rank, verified: false };
-      db.userRanks.set(message.author.id, userProfile);
-      await saveDB();
-
-      if (db.config.verificationLogChannelId) {
-        const vChan = message.guild.channels.cache.get(db.config.verificationLogChannelId);
-        if (vChan) {
-          const verifyEmbed = new EmbedBuilder()
-            .setColor('#FEE75C')
-            .setTitle('🎮 Top Rank Verification Claim')
-            .setDescription(`User: <@${message.author.id}>\nGame: **${game.toUpperCase()}**\nClaimed Rank: **${rank}**`);
-
-          const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`verify_rank_approve_${message.author.id}_${game}_${rank}`).setLabel('Approve Rank & Assign Role').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId(`verify_rank_deny_${message.author.id}_${game}`).setLabel('Deny Rank').setStyle(ButtonStyle.Danger)
-          );
-          vChan.send({ embeds: [verifyEmbed], components: [row] }).catch(() => {});
-        }
-      }
-      return message.reply(`⚠️ **${rank}** requires verification! **Please open a support ticket** and send screenshot proof so staff can verify and assign your role.`);
-    } else {
-      userProfile[game] = { rank, verified: true };
-      db.userRanks.set(message.author.id, userProfile);
-      await saveDB();
-
-      await syncRankRoles(message.member, game, rank);
-
-      return message.reply(`✅ Your **${game.toUpperCase()}** rank has been saved as **${rank}** and your Battle Royale role has been updated!`);
-    }
-  }
-
-  if (command === 'removerank' || command === 'delrank') {
-    const game = args[0]?.toLowerCase();
-    if (!game) return message.reply('Usage: `,removerank <game>`');
-
-    const profile = db.userRanks.get(message.author.id);
-    if (!profile || !profile[game]) return message.reply(`❌ You do not have a rank saved for **${game.toUpperCase()}**.`);
-
-    delete profile[game];
-    db.userRanks.set(message.author.id, profile);
-    await saveDB();
-
-    const gameMap = GAME_ROLE_MAP[game];
-    if (gameMap) {
-      for (const roleId of Object.values(gameMap)) {
-        if (message.member.roles.cache.has(roleId)) await message.member.roles.remove(roleId).catch(() => {});
-      }
-    }
-
-    return message.reply(`✅ Removed your **${game.toUpperCase()}** rank and associated role.`);
-  }
-
-  if (command === 'rank') {
-    const target = message.mentions.users.first() || message.author;
-    const profile = db.userRanks.get(target.id);
-
-    if (!profile || Object.keys(profile).length === 0) return message.reply(`**${target.username}** has no saved game ranks.`);
-
-    const rankEmbed = new EmbedBuilder().setColor('#5865F2').setTitle(`🎮 Game Ranks — ${target.username}`).setThumbnail(target.displayAvatarURL({ dynamic: true }));
-    for (const [game, data] of Object.entries(profile)) {
-      const statusBadge = data.verified ? '✅' : '⏳ *(Pending Proof)*';
-      rankEmbed.addFields({ name: game.toUpperCase(), value: `\`${data.rank}\` ${statusBadge}`, inline: true });
-    }
-    return message.channel.send({ embeds: [rankEmbed] });
-  }
-
-  if (command === 'bal' || command === 'balance' || command === 'coins') {
-    const target = message.mentions.users.first() || message.author;
-    const coins = db.userCoins.get(target.id) || 0;
-    return message.reply(`🪙 **${target.username}** currently has **${coins} coins**.`);
-  }
-
-  if (command === 'sticky') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) return;
-    const text = args.join(' ');
-    if (!text) return message.reply('Usage: `,sticky <text>`');
-
-    db.stickyMessages.set(message.channel.id, text);
-    await saveDB();
-    message.delete().catch(() => {});
-    return message.channel.send(text);
-  }
-
-  if (command === 'unsticky') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) return;
-    db.stickyMessages.delete(message.channel.id);
-    await saveDB();
-    return message.reply('✅ Removed sticky note.');
-  }
-
-  if (command === 'warn') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) return;
-    const target = message.mentions.members.first();
-    const reason = args.slice(1).join(' ') || 'No reason provided';
-    if (!target) return message.reply('Usage: `,warn @user <reason>`');
-
-    const userWarns = db.warnings.get(target.id) || [];
-    userWarns.push({ reason, moderator: message.author.tag, date: new Date().toLocaleDateString() });
-    db.warnings.set(target.id, userWarns);
-    await saveDB();
-
-    logServerEvent(message.guild, '⚠️ Member Warned', `**User:** <@${target.id}>\n**Moderator:** <@${message.author.id}>\n**Reason:** ${reason}`);
-    return message.reply(`⚠️ Warned <@${target.id}> for: *${reason}*`);
-  }
-
-  if (command === 'warnings') {
-    const target = message.mentions.users.first() || message.author;
-    const userWarns = db.warnings.get(target.id) || [];
-    if (userWarns.length === 0) return message.reply(`**${target.username}** has 0 warnings.`);
-
-    const warnEmbed = new EmbedBuilder().setColor('#FEE75C').setTitle(`⚠️ Warning Log — ${target.username}`);
-    userWarns.forEach((w, idx) => warnEmbed.addFields({ name: `Warning #${idx + 1}`, value: `**Reason:** ${w.reason}\n**By:** ${w.moderator} (${w.date})` }));
-    return message.channel.send({ embeds: [warnEmbed] });
-  }
-
-  if (command === 'timeout' || command === 'mute') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) return;
-    const target = message.mentions.members.first();
-    const durationMins = parseInt(args[1]);
-    const reason = args.slice(2).join(' ') || 'No reason provided';
-    if (!target || isNaN(durationMins)) return message.reply('Usage: `,timeout @user <minutes> [reason]`');
-
-    await target.timeout(durationMins * 60 * 1000, reason).catch(() => {});
-    logServerEvent(message.guild, '⏳ Member Timed Out', `**User:** <@${target.id}>\n**Duration:** ${durationMins}m\n**Reason:** ${reason}`);
-    return message.reply(`⏳ Timed out <@${target.id}> for **${durationMins} minutes**.`);
-  }
-
-  if (command === 'ban') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers)) return;
-    const target = message.mentions.members.first();
-    const reason = args.slice(1).join(' ') || 'No reason provided';
-    if (!target) return message.reply('Usage: `,ban @user [reason]`');
-
-    await target.ban({ reason }).catch(() => {});
-    logServerEvent(message.guild, '🔨 Member Banned', `**User:** <@${target.id}>\n**Moderator:** <@${message.author.id}>\n**Reason:** ${reason}`);
-    return message.reply(`🔨 Banned <@${target.id}>.`);
-  }
-
-  if (command === 'banrequest') {
-    const target = message.mentions.users.first();
-    const reason = args.slice(1).join(' ');
-    if (!target || !reason) return message.reply('Usage: `,banrequest @user <reason>`');
-
-    message.delete().catch(() => {});
-    if (db.config.banRequestChannelId) {
-      const banChan = message.guild.channels.cache.get(db.config.banRequestChannelId);
-      if (banChan) {
-        const banEmbed = new EmbedBuilder()
-          .setColor('#ED4245')
-          .setTitle('🚨 Ban Request Submitted')
-          .setDescription(`Target: <@${target.id}>\nRequested By: <@${message.author.id}>\nReason:${reason}`);
-
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`banreq_approve_${target.id}`).setLabel('Approve Ban').setStyle(ButtonStyle.Danger),
-          new ButtonBuilder().setCustomId(`banreq_deny_${target.id}`).setLabel('Deny Request').setStyle(ButtonStyle.Secondary)
-        );
-
-        banChan.send({ embeds: [banEmbed], components: [row] }).catch(() => {});
-      }
-    }
-    return message.channel.send(`✅ Ban request submitted for <@${target.id}>.`);
-  }
-
-  if (command === 'permit') {
-    if (!message.member.voice.channel || !message.member.voice.channel.name.startsWith('🔊 ')) return message.reply('❌ Must be in your temp voice room.');
-    const target = message.mentions.members.first();
-    if (!target) return message.reply('Usage: `,permit @user`');
-
-    await message.member.voice.channel.permissionOverwrites.edit(target.id, { Connect: true, ViewChannel: true });
-    return message.reply(`✅ Permitted <@${target.id}>.`);
-  }
-
-  if (command === 'kick') {
-    if (!message.member.voice.channel || !message.member.voice.channel.name.startsWith('🔊 ')) return message.reply('❌ Must be in your temp voice room.');
-    const target = message.mentions.members.first();
-    if (!target) return message.reply('Usage: `,kick @user`');
-
-    await message.member.voice.channel.permissionOverwrites.edit(target.id, { Connect: false });
-    if (target.voice.channelId === message.member.voice.channel.id) await target.voice.disconnect().catch(() => {});
-    return message.reply(`⛔ Kicked <@${target.id}>.`);
-  }
-
-  if (command === 'ping') {
-    const sent = await message.reply('🏓 Pinging...').catch(console.error);
-    if (!sent) return;
-    return sent.edit(`🏓 **Pong!** Latency: \`${sent.createdTimestamp - message.createdTimestamp}ms\` | API: \`${Math.round(client.ws.ping)}ms\``);
-  }
-
-  if (command === 'selfie') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) return;
-    message.delete().catch(() => {});
-    const selfieEmbed = new EmbedBuilder()
-      .setColor('#EB459E')
-      .setTitle('🤳 Identity Verification Instructions')
-      .setDescription(
-        'To get verified, please post a photo in this channel following these instructions:\n\n' +
-        '1. Send a selfie with your **face fully in the picture**.\n' +
-        '2. Hold a paper showing our server name: `/above`.\n' +
-        '3. Include today\'s **date** and your **Discord username** on the paper.\n\n' +
-        'Staff will inspect your image and verify you shortly!'
-      );
-    return message.channel.send({ embeds: [selfieEmbed] });
-  }
-
-  if (command === 'ticket') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) return;
-    message.delete().catch(() => {});
-    const panelEmbed = new EmbedBuilder().setColor('#57F287').setTitle('🎟 Support Ticket Center').setDescription('Click below to open a private support ticket with staff.');
-    const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('open_ticket').setLabel('Create Ticket').setStyle(ButtonStyle.Primary).setEmoji('📩'));
-    return message.channel.send({ embeds: [panelEmbed], components: [row] });
-  }
-
-  if (command === 'snipe' || command === 's') {
-    const sniped = deletedMessages.get(message.channel.id);
-    if (!sniped) return message.reply('There is nothing to snipe!');
-
-    const snipeEmbed = new EmbedBuilder()
-      .setColor('#ED4245')
-      .setAuthor({ name: sniped.author.tag, iconURL: sniped.author.displayAvatarURL() })
-      .setDescription(sniped.content)
-      .setTimestamp(sniped.time);
-
-    if (sniped.image) snipeEmbed.setImage(sniped.image);
-    return message.channel.send({ embeds: [snipeEmbed] });
-  }
-
-  if (command === 'afk') {
-    const reason = args.join(' ') || 'AFK';
-    db.afkUsers.set(message.author.id, { reason, timestamp: Date.now() });
-    await saveDB();
-    return message.reply(`Set your AFK: **${reason}**`);
-  }
-
-  if (command === 'config') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) return;
-    const key = args[0];
-    const val = args[1];
-
-    if (!key || !(key in db.config)) return message.reply(`Valid keys: \`${Object.keys(db.config.toObject()).join(', ')}\``);
-
-    db.config[key] = val;
-    await saveDB();
-    message.delete().catch(() => {});
-    return message.channel.send(`✅ Setting **${key}** updated to \`${val}\`.`);
-  }
-});
-
-// ==========================================
-// 8. BUTTONS, MODALS & INTERACTION HANDLER
-// ==========================================
-client.on('interactionCreate', async (interaction) => {
-  const db = await getDB();
-
-  if (interaction.isButton()) {
-    if (interaction.customId === 'open_ticket') {
-      const guild = interaction.guild;
-      const user = interaction.user;
-
-      db.ticketCounter += 1;
-      await saveDB();
-
-      const formattedNumber = String(db.ticketCounter).padStart(4, '0');
-      const cleanUsername = user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const channelName = `ticket-${cleanUsername}-${formattedNumber}`;
-
-      const permissions = [
-        { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-        { id: user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
-      ];
-
-      if (db.config.ownerRoleId) permissions.push({ id: db.config.ownerRoleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] });
-      if (db.config.staffRoleId) permissions.push({ id: db.config.staffRoleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] });
-
-      const ticketChan = await guild.channels.create({
-        name: channelName,
-        type: ChannelType.GuildText,
-        parent: db.config.ticketCategoryId || null,
-        permissionOverwrites: permissions,
-      }).catch(console.error);
-
-      if (ticketChan) {
-        if (db.config.staffRoleId) ticketChan.send(`<@&${db.config.staffRoleId}> New ticket from <@${user.id}>!`).catch(() => {});
-
-        const controlEmbed = new EmbedBuilder().setColor('#5865F2').setTitle(`⚙️ Ticket Panel — #${formattedNumber}`).setDescription(`Welcome <@${user.id}>! Staff will be with you shortly.`);
-
-        const row1 = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('ticket_close').setLabel('Close').setStyle(ButtonStyle.Danger).setEmoji('🔒'),
-          new ButtonBuilder().setCustomId('ticket_claim').setLabel('Claim').setStyle(ButtonStyle.Success).setEmoji('🙋'),
-          new ButtonBuilder().setCustomId('ticket_unclaim').setLabel('Unclaim').setStyle(ButtonStyle.Secondary).setEmoji('🚪'),
-          new ButtonBuilder().setCustomId('ticket_hide').setLabel('Hide').setStyle(ButtonStyle.Primary).setEmoji('🙈')
-        );
-
-        const row2 = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('ticket_add_member').setLabel('Add Member').setStyle(ButtonStyle.Secondary).setEmoji('➕'),
-          new ButtonBuilder().setCustomId('ticket_remove_member').setLabel('Remove Member').setStyle(ButtonStyle.Secondary).setEmoji('➖')
-        );
-
-        await ticketChan.send({ embeds: [controlEmbed], components: [row1, row2] }).catch(console.error);
-        await interaction.reply({ content: `Ticket opened: ${ticketChan}`, ephemeral: true }).catch(() => {});
-      }
-    }
-
-    if (interaction.customId === 'ticket_add_member') {
-      const modal = new ModalBuilder().setCustomId('modal_add_member').setTitle('Add Member to Ticket');
-      const input = new TextInputBuilder().setCustomId('member_id').setLabel('Member Discord User ID').setStyle(TextInputStyle.Short).setRequired(true);
-      modal.addComponents(new ActionRowBuilder().addComponents(input));
-      return interaction.showModal(modal);
-    }
-
-    if (interaction.customId === 'ticket_remove_member') {
-      const modal = new ModalBuilder().setCustomId('modal_remove_member').setTitle('Remove Member from Ticket');
-      const input = new TextInputBuilder().setCustomId('member_id').setLabel('Member Discord User ID').setStyle(TextInputStyle.Short).setRequired(true);
-      modal.addComponents(new ActionRowBuilder().addComponents(input));
-      return interaction.showModal(modal);
-    }
-
-    if (interaction.customId.startsWith('ticket_')) {
-      const isOwnerOrAdmin = interaction.user.id === interaction.guild.ownerId || interaction.member.roles.cache.has(db.config.ownerRoleId) || interaction.member.permissions.has(PermissionsBitField.Flags.Administrator);
-
-      if (interaction.customId === 'ticket_close') {
-        if (!isOwnerOrAdmin) return interaction.reply({ content: '❌ Only Server Owners/Admins can close tickets.', ephemeral: true });
-        await interaction.reply('🔒 Generating transcript and closing ticket in 5 seconds...');
-        await sendTranscript(interaction.channel, 'Ticket');
-        setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
-      }
-
-      if (interaction.customId === 'ticket_hide') {
-        if (!isOwnerOrAdmin) return interaction.reply({ content: '❌ Only Server Owners/Admins can hide tickets.', ephemeral: true });
-        if (db.config.staffRoleId) await interaction.channel.permissionOverwrites.edit(db.config.staffRoleId, { ViewChannel: false }).catch(console.error);
-        await interaction.reply({ content: '🙈 Ticket hidden! Non-admin staff can no longer view this channel.', ephemeral: true });
-      }
-
-      if (interaction.customId === 'ticket_claim') {
-        if (!isOwnerOrAdmin) return interaction.reply({ content: '❌ Only Server Owners/Admins can claim tickets.', ephemeral: true });
-        await interaction.reply(`🙋 Ticket claimed by <@${interaction.user.id}>!`);
-      }
-
-      if (interaction.customId === 'ticket_unclaim') {
-        if (!isOwnerOrAdmin) return interaction.reply({ content: '❌ Only Server Owners/Admins can unclaim tickets.', ephemeral: true });
-        await interaction.reply(`🚪 Ticket unclaimed by <@${interaction.user.id}>.`);
-      }
-    }
-
-    if (interaction.customId.startsWith('verify_rank_approve_')) {
-      const parts = interaction.customId.split('_');
-      const userId = parts[3];
-      const game = parts[4];
-      const rank = parts[5];
-
-      const profile = db.userRanks.get(userId);
-      if (profile && profile[game]) {
-        profile[game].verified = true;
-        db.userRanks.set(userId, profile);
-        await saveDB();
-
-        const member = await interaction.guild.members.fetch(userId).catch(() => null);
-        if (member) await syncRankRoles(member, game, rank);
-
-        await interaction.reply(`✅ Approved **${game.toUpperCase()}** rank for <@${userId}> and assigned the corresponding role.`);
-      }
-    }
-
-    if (interaction.customId.startsWith('verify_rank_deny_')) {
-      const parts = interaction.customId.split('_');
-      const userId = parts[3];
-      const game = parts[4];
-
-      const profile = db.userRanks.get(userId);
-      if (profile && profile[game]) {
-        delete profile[game];
-        db.userRanks.set(userId, profile);
-        await saveDB();
-        await interaction.reply(`❌ Denied and removed **${game.toUpperCase()}** rank claim for <@${userId}>.`);
-      }
-    }
-  }
-
-  if (interaction.isModalSubmit()) {
-    if (interaction.customId === 'modal_add_member') {
-      const memberId = interaction.fields.getTextInputValue('member_id').trim();
-      const targetMember = await interaction.guild.members.fetch(memberId).catch(() => null);
-
-      if (!targetMember) return interaction.reply({ content: '❌ Invalid Member ID or user is not in this server.', ephemeral: true });
-
-      await interaction.channel.permissionOverwrites.edit(targetMember.id, { ViewChannel: true, SendMessages: true }).catch(console.error);
-      return interaction.reply({ content: `✅ Added <@${targetMember.id}> to the ticket.`, ephemeral: true });
-    }
-
-    if (interaction.customId === 'modal_remove_member') {
-      const memberId = interaction.fields.getTextInputValue('member_id').trim();
-      const targetMember = await interaction.guild.members.fetch(memberId).catch(() => null);
-
-      if (!targetMember) return interaction.reply({ content: '❌ Invalid Member ID or user is not in this server.', ephemeral: true });
-
-      await interaction.channel.permissionOverwrites.edit(targetMember.id, { ViewChannel: false }).catch(console.error);
-      return interaction.reply({ content: `⛔ Removed <@${targetMember.id}> from the ticket.`, ephemeral: true });
-    }
-  }
-});
-
-// ==========================================
-// 9. LOGIN
-// ==========================================
-if (!process.env.DISCORD_TOKEN) {
-  console.error('DISCORD_TOKEN env variable missing!');
-  process.exit(1);
 }
-
-client.login(process.env.DISCORD_TOKEN);

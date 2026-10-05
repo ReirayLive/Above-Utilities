@@ -32,108 +32,108 @@ app.listen(PORT, () => console.log(`Web server listening on port ${PORT}`));
 const GAME_RANK_DATA = {
   apex: {
     name: 'Apex Legends',
-    auto: ['rookie iv','rookie iii','rookie ii','rookie i','bronze iv','bronze iii','bronze ii','bronze i','silver iv','silver iii','silver ii','silver i','gold iv','gold iii','gold ii','gold i','platinum iv','platinum iii','platinum ii','platinum i','diamond iv','diamond iii','diamond ii','diamond i'],
-    approval: ['master','apex predator']
+    auto: ['rookie', 'rookie iv', 'rookie iii', 'rookie ii', 'rookie i', 'bronze', 'bronze iv', 'bronze iii', 'bronze ii', 'bronze i', 'silver', 'silver iv', 'silver iii', 'silver ii', 'silver i', 'gold', 'gold iv', 'gold iii', 'gold ii', 'gold i', 'platinum', 'platinum iv', 'platinum iii', 'platinum ii', 'platinum i', 'diamond', 'diamond iv', 'diamond iii', 'diamond ii', 'diamond i'],
+    approval: ['master', 'apex predator', 'predator']
   },
   battlefield: {
     name: 'Battlefield 2042',
-    auto: ['bronze i','bronze ii','bronze iii','silver i','silver ii','silver iii','gold i','gold ii','gold iii','platinum i','platinum ii','platinum iii','diamond i','diamond ii','diamond iii'],
+    auto: ['bronze', 'bronze i', 'bronze ii', 'bronze iii', 'silver', 'silver i', 'silver ii', 'silver iii', 'gold', 'gold i', 'gold ii', 'gold iii', 'platinum', 'platinum i', 'platinum ii', 'platinum iii', 'diamond', 'diamond i', 'diamond ii', 'diamond iii'],
     approval: ['elite']
   },
   cod: {
     name: 'Call of Duty',
-    auto: ['bronze i','bronze ii','bronze iii','silver i','silver ii','silver iii','gold i','gold ii','gold iii','platinum i','platinum ii','platinum iii','diamond i','diamond ii','diamond iii','crimson i','crimson ii','crimson iii'],
-    approval: ['iridescent','top 250']
+    auto: ['bronze', 'bronze i', 'bronze ii', 'bronze iii', 'silver', 'silver i', 'silver ii', 'silver iii', 'gold', 'gold i', 'gold ii', 'gold iii', 'platinum', 'platinum i', 'platinum ii', 'platinum iii', 'diamond', 'diamond i', 'diamond ii', 'diamond iii', 'crimson', 'crimson i', 'crimson ii', 'crimson iii'],
+    approval: ['iridescent', 'top 250']
   },
   deltaforce: {
     name: 'Delta Force',
-    auto: ['bronze','silver','gold','platinum','diamond'],
-    approval: ['black hawk','pinnacle']
+    auto: ['bronze', 'silver', 'gold', 'platinum', 'diamond'],
+    approval: ['black hawk', 'pinnacle']
   },
   destiny2: {
     name: 'Destiny 2',
-    auto: ['copper iii','copper ii','copper i','bronze iii','bronze ii','bronze i','silver iii','silver ii','silver i','gold iii','gold ii','gold i','platinum iii','platinum ii','platinum i'],
-    approval: ['adept iii','adept ii','adept i','ascendant iii','ascendant ii','ascendant i']
+    auto: ['copper', 'copper iii', 'copper ii', 'copper i', 'bronze', 'bronze iii', 'bronze ii', 'bronze i', 'silver', 'silver iii', 'silver ii', 'silver i', 'gold', 'gold iii', 'gold ii', 'gold i', 'platinum', 'platinum iii', 'platinum ii', 'platinum i'],
+    approval: ['adept', 'adept iii', 'adept ii', 'adept i', 'ascendant', 'ascendant iii', 'ascendant ii', 'ascendant i']
   },
   thefinals: {
     name: 'The Finals',
-    auto: ['bronze 4','bronze 3','bronze 2','bronze 1','silver 4','silver 3','silver 2','silver 1','gold 4','gold 3','gold 2','gold 1','platinum 4','platinum 3','platinum 2','platinum 1','diamond 4','diamond 3','diamond 2','diamond 1'],
+    auto: ['bronze', 'bronze 4', 'bronze 3', 'bronze 2', 'bronze 1', 'silver', 'silver 4', 'silver 3', 'silver 2', 'silver 1', 'gold', 'gold 4', 'gold 3', 'gold 2', 'gold 1', 'platinum', 'platinum 4', 'platinum 3', 'platinum 2', 'platinum 1', 'diamond', 'diamond 4', 'diamond 3', 'diamond 2', 'diamond 1'],
     approval: ['ruby']
   },
   fortnite: {
     name: 'Fortnite',
-    auto: ['bronze i','bronze ii','bronze iii','silver i','silver ii','silver iii','gold i','gold ii','gold iii','platinum i','platinum ii','platinum iii','diamond i','diamond ii','diamond iii'],
-    approval: ['elite','champion','unreal']
+    auto: ['bronze', 'bronze i', 'bronze ii', 'bronze iii', 'silver', 'silver i', 'silver ii', 'silver iii', 'gold', 'gold i', 'gold ii', 'gold iii', 'platinum', 'platinum i', 'platinum ii', 'platinum iii', 'diamond', 'diamond i', 'diamond ii', 'diamond iii'],
+    approval: ['elite', 'champion', 'unreal']
   },
   fragpunk: {
     name: 'FragPunk',
-    auto: ['bronze v','bronze iv','bronze iii','bronze ii','bronze i','silver v','silver iv','silver iii','silver ii','silver i','gold v','gold iv','gold iii','gold ii','gold i','platinum v','platinum iv','platinum iii','platinum ii','platinum i','diamond v','diamond iv','diamond iii','diamond ii','diamond i'],
-    approval: ['master v','master iv','master iii','master ii','master i','punkmaster']
+    auto: ['bronze', 'bronze v', 'bronze iv', 'bronze iii', 'bronze ii', 'bronze i', 'silver', 'silver v', 'silver iv', 'silver iii', 'silver ii', 'silver i', 'gold', 'gold v', 'gold iv', 'gold iii', 'gold ii', 'gold i', 'platinum', 'platinum v', 'platinum iv', 'platinum iii', 'platinum ii', 'platinum i', 'diamond', 'diamond v', 'diamond iv', 'diamond iii', 'diamond ii', 'diamond i'],
+    approval: ['master', 'master v', 'master iv', 'master iii', 'master ii', 'master i', 'punkmaster']
   },
   haloinfinite: {
     name: 'Halo Infinite',
-    auto: ['bronze i','bronze ii','bronze iii','bronze iv','bronze v','bronze vi','silver i','silver ii','silver iii','silver iv','silver v','silver vi','gold i','gold ii','gold iii','gold iv','gold v','gold vi','platinum i','platinum ii','platinum iii','platinum iv','platinum v','platinum vi','diamond i','diamond ii','diamond iii','diamond iv','diamond v','diamond vi'],
+    auto: ['bronze', 'bronze i', 'bronze ii', 'bronze iii', 'bronze iv', 'bronze v', 'bronze vi', 'silver', 'silver i', 'silver ii', 'silver iii', 'silver iv', 'silver v', 'silver vi', 'gold', 'gold i', 'gold ii', 'gold iii', 'gold iv', 'gold v', 'gold vi', 'platinum', 'platinum i', 'platinum ii', 'platinum iii', 'platinum iv', 'platinum v', 'platinum vi', 'diamond', 'diamond i', 'diamond ii', 'diamond iii', 'diamond iv', 'diamond v', 'diamond vi'],
     approval: ['onyx']
   },
   marvelrivals: {
     name: 'Marvel Rivals',
-    auto: ['bronze iii','bronze ii','bronze i','silver iii','silver ii','silver i','gold iii','gold ii','gold i','platinum iii','platinum ii','platinum i','diamond iii','diamond ii','diamond i','grandmaster iii','grandmaster ii','grandmaster i'],
-    approval: ['celestial iii','celestial ii','celestial i','eternity','one above all']
+    auto: ['bronze', 'bronze iii', 'bronze ii', 'bronze i', 'silver', 'silver iii', 'silver ii', 'silver i', 'gold', 'gold iii', 'gold ii', 'gold i', 'platinum', 'platinum iii', 'platinum ii', 'platinum i', 'diamond', 'diamond iii', 'diamond ii', 'diamond i', 'grandmaster', 'grandmaster iii', 'grandmaster ii', 'grandmaster i'],
+    approval: ['celestial', 'celestial iii', 'celestial ii', 'celestial i', 'eternity', 'one above all']
   },
   overwatch2: {
     name: 'Overwatch 2',
-    auto: ['bronze 5','bronze 4','bronze 3','bronze 2','bronze 1','silver 5','silver 4','silver 3','silver 2','silver 1','gold 5','gold 4','gold 3','gold 2','gold 1','platinum 5','platinum 4','platinum 3','platinum 2','platinum 1','diamond 5','diamond 4','diamond 3','diamond 2','diamond 1','master 5','master 4','master 3','master 2','master 1'],
-    approval: ['grandmaster 5','grandmaster 4','grandmaster 3','grandmaster 2','grandmaster 1','champion 5','champion 4','champion 3','champion 2','champion 1','top 500']
+    auto: ['bronze', 'bronze 5', 'bronze 4', 'bronze 3', 'bronze 2', 'bronze 1', 'silver', 'silver 5', 'silver 4', 'silver 3', 'silver 2', 'silver 1', 'gold', 'gold 5', 'gold 4', 'gold 3', 'gold 2', 'gold 1', 'platinum', 'platinum 5', 'platinum 4', 'platinum 3', 'platinum 2', 'platinum 1', 'diamond', 'diamond 5', 'diamond 4', 'diamond 3', 'diamond 2', 'diamond 1', 'master', 'master 5', 'master 4', 'master 3', 'master 2', 'master 1'],
+    approval: ['grandmaster', 'grandmaster 5', 'grandmaster 4', 'grandmaster 3', 'grandmaster 2', 'grandmaster 1', 'champion', 'champion 5', 'champion 4', 'champion 3', 'champion 2', 'champion 1', 'top 500']
   },
   rocketleague: {
     name: 'Rocket League',
-    auto: ['bronze i','bronze ii','bronze iii','silver i','silver ii','silver iii','gold i','gold ii','gold iii','platinum i','platinum ii','platinum iii','diamond i','diamond ii','diamond iii','champion i','champion ii','champion iii'],
-    approval: ['grand champion i','grand champion ii','grand champion iii','supersonic legend']
+    auto: ['bronze', 'bronze i', 'bronze ii', 'bronze iii', 'silver', 'silver i', 'silver ii', 'silver iii', 'gold', 'gold i', 'gold ii', 'gold iii', 'platinum', 'platinum i', 'platinum ii', 'platinum iii', 'diamond', 'diamond i', 'diamond ii', 'diamond iii', 'champion', 'champion i', 'champion ii', 'champion iii'],
+    approval: ['grand champion', 'grand champion i', 'grand champion ii', 'grand champion iii', 'supersonic legend']
   },
   smite: {
     name: 'Smite',
-    auto: ['bronze v','bronze iv','bronze iii','bronze ii','bronze i','silver v','silver iv','silver iii','silver ii','silver i','gold v','gold iv','gold iii','gold ii','gold i','platinum v','platinum iv','platinum iii','platinum ii','platinum i','diamond v','diamond iv','diamond iii','diamond ii','diamond i'],
-    approval: ['masters','grandmaster']
+    auto: ['bronze', 'bronze v', 'bronze iv', 'bronze iii', 'bronze ii', 'bronze i', 'silver', 'silver v', 'silver iv', 'silver iii', 'silver ii', 'silver i', 'gold', 'gold v', 'gold iv', 'gold iii', 'gold ii', 'gold i', 'platinum', 'platinum v', 'platinum iv', 'platinum iii', 'platinum ii', 'platinum i', 'diamond', 'diamond v', 'diamond iv', 'diamond iii', 'diamond ii', 'diamond i'],
+    approval: ['masters', 'grandmaster']
   },
   splitgate: {
     name: 'Splitgate',
-    auto: ['bronze i','bronze ii','bronze iii','bronze iv','bronze v','silver i','silver ii','silver iii','silver iv','silver v','gold i','gold ii','gold iii','gold iv','gold v','platinum i','platinum ii','platinum iii','platinum iv','platinum v','diamond i','diamond ii','diamond iii','diamond iv','diamond v'],
-    approval: ['master i','master ii','master iii','master iv','master v','pro']
+    auto: ['bronze', 'bronze i', 'bronze ii', 'bronze iii', 'bronze iv', 'bronze v', 'silver', 'silver i', 'silver ii', 'silver iii', 'silver iv', 'silver v', 'gold', 'gold i', 'gold ii', 'gold iii', 'gold iv', 'gold v', 'platinum', 'platinum i', 'platinum ii', 'platinum iii', 'platinum iv', 'platinum v', 'diamond', 'diamond i', 'diamond ii', 'diamond iii', 'diamond iv', 'diamond v'],
+    approval: ['master', 'master i', 'master ii', 'master iii', 'master iv', 'master v', 'pro']
   },
   rainbow6: {
     name: 'Rainbow Six Siege',
-    auto: ['copper v','copper iv','copper iii','copper ii','copper i','bronze v','bronze iv','bronze iii','bronze ii','bronze i','silver v','silver iv','silver iii','silver ii','silver i','gold v','gold iv','gold iii','gold ii','gold i','platinum v','platinum iv','platinum iii','platinum ii','platinum i','emerald v','emerald iv','emerald iii','emerald ii','emerald i'],
-    approval: ['diamond v','diamond iv','diamond iii','diamond ii','diamond i','champions']
+    auto: ['copper', 'copper v', 'copper iv', 'copper iii', 'copper ii', 'copper i', 'bronze', 'bronze v', 'bronze iv', 'bronze iii', 'bronze ii', 'bronze i', 'silver', 'silver v', 'silver iv', 'silver iii', 'silver ii', 'silver i', 'gold', 'gold v', 'gold iv', 'gold iii', 'gold ii', 'gold i', 'platinum', 'platinum v', 'platinum iv', 'platinum iii', 'platinum ii', 'platinum i', 'emerald', 'emerald v', 'emerald iv', 'emerald iii', 'emerald ii', 'emerald i'],
+    approval: ['diamond', 'diamond v', 'diamond iv', 'diamond iii', 'diamond ii', 'diamond i', 'champions']
   },
   forza: {
     name: 'Forza Motorsport',
-    auto: ['open','qualifier','sportsman','expert','pro'],
+    auto: ['open', 'qualifier', 'sportsman', 'expert', 'pro'],
     approval: ['pinnacle']
   },
   titanfall2: {
     name: 'Titanfall 2',
-    auto: ['bronze i','bronze ii','bronze iii','bronze iv','bronze v','silver i','silver ii','silver iii','silver iv','silver v','gold i','gold ii','gold iii','gold iv','gold v','platinum i','platinum ii','platinum iii','platinum iv','platinum v'],
-    approval: ['diamond i','diamond ii','diamond iii','diamond iv','diamond v']
+    auto: ['bronze', 'bronze i', 'bronze ii', 'bronze iii', 'bronze iv', 'bronze v', 'silver', 'silver i', 'silver ii', 'silver iii', 'silver iv', 'silver v', 'gold', 'gold i', 'gold ii', 'gold iii', 'gold iv', 'gold v', 'platinum', 'platinum i', 'platinum ii', 'platinum iii', 'platinum iv', 'platinum v'],
+    approval: ['diamond', 'diamond i', 'diamond ii', 'diamond iii', 'diamond iv', 'diamond v']
   },
   valorant: {
     name: 'VALORANT',
-    auto: ['iron 1','iron 2','iron 3','bronze 1','bronze 2','bronze 3','silver 1','silver 2','silver 3','gold 1','gold 2','gold 3','platinum 1','platinum 2','platinum 3','diamond 1','diamond 2','diamond 3'],
-    approval: ['ascendant 1','ascendant 2','ascendant 3','immortal 1','immortal 2','immortal 3','radiant']
+    auto: ['iron', 'iron 1', 'iron 2', 'iron 3', 'bronze', 'bronze 1', 'bronze 2', 'bronze 3', 'silver', 'silver 1', 'silver 2', 'silver 3', 'gold', 'gold 1', 'gold 2', 'gold 3', 'platinum', 'platinum 1', 'platinum 2', 'platinum 3', 'diamond', 'diamond 1', 'diamond 2', 'diamond 3'],
+    approval: ['ascendant', 'ascendant 1', 'ascendant 2', 'ascendant 3', 'immortal', 'immortal 1', 'immortal 2', 'immortal 3', 'radiant']
   },
   arcraiders: {
     name: 'ARC Raiders',
-    auto: ['rookie i','rookie ii','rookie iii','tryhard i','tryhard ii','tryhard iii','wildcard i','wildcard ii','wildcard iii','daredevil i','daredevil ii','daredevil iii'],
-    approval: ['hotshot','cantina legend']
+    auto: ['rookie', 'rookie i', 'rookie ii', 'rookie iii', 'tryhard', 'tryhard i', 'tryhard ii', 'tryhard iii', 'wildcard', 'wildcard i', 'wildcard ii', 'wildcard iii', 'daredevil', 'daredevil i', 'daredevil ii', 'daredevil iii'],
+    approval: ['hotshot', 'cantina legend']
   },
   forhonor: {
     name: 'For Honor',
-    auto: ['bronze i','bronze ii','bronze iii','bronze iv','bronze v','silver i','silver ii','silver iii','silver iv','silver v','gold i','gold ii','gold iii','gold iv','gold v','platinum i','platinum ii','platinum iii','platinum iv','platinum v','diamond i','diamond ii','diamond iii','diamond iv','diamond v'],
-    approval: ['master','grandmaster']
+    auto: ['bronze', 'bronze i', 'bronze ii', 'bronze iii', 'bronze iv', 'bronze v', 'silver', 'silver i', 'silver ii', 'silver iii', 'silver iv', 'silver v', 'gold', 'gold i', 'gold ii', 'gold iii', 'gold iv', 'gold v', 'platinum', 'platinum i', 'platinum ii', 'platinum iii', 'platinum iv', 'platinum v', 'diamond', 'diamond i', 'diamond ii', 'diamond iii', 'diamond iv', 'diamond v'],
+    approval: ['master', 'grandmaster']
   },
   dbd: {
     name: 'Dead by Daylight',
-    auto: ['ash iv','ash iii','ash ii','ash i','bronze iv','bronze iii','bronze ii','bronze i','silver iv','silver iii','silver ii','silver i','gold iv','gold iii','gold ii','gold i'],
-    approval: ['iridescent iv','iridescent iii','iridescent ii','iridescent i']
+    auto: ['ash', 'ash iv', 'ash iii', 'ash ii', 'ash i', 'bronze', 'bronze iv', 'bronze iii', 'bronze ii', 'bronze i', 'silver', 'silver iv', 'silver iii', 'silver ii', 'silver i', 'gold', 'gold iv', 'gold iii', 'gold ii', 'gold i'],
+    approval: ['iridescent', 'iridescent iv', 'iridescent iii', 'iridescent ii', 'iridescent i']
   }
 };
 
@@ -200,7 +200,7 @@ const dbSchema = new mongoose.Schema({
   stickyMessages: { type: Map, of: String, default: {} }
 });
 
-const BotDB = mongoose.model('BotData_V3', dbSchema);
+const BotDB = mongoose.model('BotData_V4', dbSchema);
 let dbData = null;
 
 async function getDB(guildId = 'main') {
@@ -320,11 +320,11 @@ async function addXp(member, amount, type = 'chat') {
   const topChatters = Array.from(db.dailyMessages.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5).map(e => e[0]);
   if (topChatters.includes(userId)) mult *= 1.5;
 
-  const finalAmount = Math.floor(amount * mult);
+  const finalAmount = Math.floor((amount / 5) * mult);
 
   if (type === 'chat') {
     data.chatXp += finalAmount;
-    const nextLvlXp = Math.floor(100 * Math.pow(data.chatLvl + 1, 1.5));
+    const nextLvlXp = Math.floor(500 * Math.pow(data.chatLvl + 1, 2));
     if (data.chatXp >= nextLvlXp) {
       data.chatLvl += 1;
       if (CHAT_LEVEL_ROLES[data.chatLvl]) {
@@ -332,11 +332,20 @@ async function addXp(member, amount, type = 'chat') {
           if (member.roles.cache.has(rId)) await member.roles.remove(rId).catch(() => {});
         }
         await member.roles.add(CHAT_LEVEL_ROLES[data.chatLvl]).catch(() => {});
+        
+        member.send({
+          embeds: [
+            new EmbedBuilder()
+              .setColor('#57F287')
+              .setTitle('🎉 Level Milestone Reached!')
+              .setDescription(`Congratulations <@${userId}>! You reached **Chat Level ${data.chatLvl}** in **${member.guild.name}**!\n\n✨ **Role Granted:** <@&${CHAT_LEVEL_ROLES[data.chatLvl]}>`)
+          ]
+        }).catch(() => {});
       }
     }
   } else {
     data.vcXp += finalAmount;
-    const nextLvlXp = Math.floor(100 * Math.pow(data.vcLvl + 1, 1.5));
+    const nextLvlXp = Math.floor(500 * Math.pow(data.vcLvl + 1, 2));
     if (data.vcXp >= nextLvlXp) {
       data.vcLvl += 1;
       if (VC_LEVEL_ROLES[data.vcLvl]) {
@@ -344,6 +353,15 @@ async function addXp(member, amount, type = 'chat') {
           if (member.roles.cache.has(rId)) await member.roles.remove(rId).catch(() => {});
         }
         await member.roles.add(VC_LEVEL_ROLES[data.vcLvl]).catch(() => {});
+
+        member.send({
+          embeds: [
+            new EmbedBuilder()
+              .setColor('#5865F2')
+              .setTitle('🎉 VC Level Milestone Reached!')
+              .setDescription(`Congratulations <@${userId}>! You reached **VC Level ${data.vcLvl}** in **${member.guild.name}**!\n\n✨ **Role Granted:** <@&${VC_LEVEL_ROLES[data.vcLvl]}>`)
+          ]
+        }).catch(() => {});
       }
     }
   }
@@ -479,23 +497,25 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
   const added = newMember.roles.cache.filter(r => !oldMember.roles.cache.has(r.id));
   const removed = oldMember.roles.cache.filter(r => !newMember.roles.cache.has(r.id));
 
+  const allLevelRoleIds = [...Object.values(CHAT_LEVEL_ROLES), ...Object.values(VC_LEVEL_ROLES)];
+
   if (added.size > 0 || removed.size > 0) {
     let desc = `**User:** <@${newMember.id}>\n`;
     if (added.size > 0) desc += `**Added Roles:** ${added.map(r => `<@&${r.id}>`).join(', ')}\n`;
     if (removed.size > 0) desc += `**Removed Roles:** ${removed.map(r => `<@&${r.id}>`).join(', ')}\n`;
-    logToChannel(newMember.guild, db.config.memberLogChannelId, '🛡️ Role Update', desc, '#5865F2');
-  }
 
-  if (!oldMember.premiumSince && newMember.premiumSince) {
-    const boostChan = newMember.guild.channels.cache.get(db.config.boostChannelId);
-    if (boostChan) {
-      boostChan.send({
-        embeds: [
-          new EmbedBuilder()
-            .setColor('#F47FFF')
-            .setTitle('🚀 Thank You For Boosting!')
-            .setDescription(`Thank you <@${newMember.id}> for boosting the server!\n\n✨ **Booster Perks:**\n• Claim custom Battle Royale roles using \`,setrank <game> <rank>\`!\n• 2x XP Boost across all chat and VC levels!\n• Access to \`,s\` (snipe) command.`)
-        ]
+    logToChannel(newMember.guild, db.config.memberLogChannelId, '🛡️ Role Update', desc, '#5865F2');
+
+    const nonLevelAdded = added.filter(r => !allLevelRoleIds.includes(r.id));
+    const nonLevelRemoved = removed.filter(r => !allLevelRoleIds.includes(r.id));
+
+    if (nonLevelAdded.size > 0 || nonLevelRemoved.size > 0) {
+      let dmMsg = `Your roles were updated in **${newMember.guild.name}**:\n`;
+      if (nonLevelAdded.size > 0) dmMsg += `➕ **Added:** ${nonLevelAdded.map(r => r.name).join(', ')}\n`;
+      if (nonLevelRemoved.size > 0) dmMsg += `➖ **Removed:** ${nonLevelRemoved.map(r => r.name).join(', ')}\n`;
+
+      newMember.send({
+        embeds: [new EmbedBuilder().setColor('#5865F2').setTitle('🛡 Role Updated').setDescription(dmMsg)]
       }).catch(() => {});
     }
   }
@@ -565,7 +585,8 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
       type: ChannelType.GuildVoice,
       parent: newState.channel.parentId,
       permissionOverwrites: [
-        { id: member.id, allow: [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.MoveMembers, PermissionFlagsBits.Connect] }
+        { id: member.id, allow: [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.MoveMembers, PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel] },
+        { id: guild.id, allow: [PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel] }
       ]
     }).catch(() => null);
 
@@ -573,8 +594,8 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
       await newState.setChannel(createdChannel).catch(() => {});
       const menuEmbed = new EmbedBuilder()
         .setColor('#5865F2')
-        .setTitle('🎙 Custom Voice Room')
-        .setDescription('Manage your voice room using the buttons below or commands:\n• `,vc permit @user`\n• `,vc remove @user`');
+        .setTitle('🎙 Voice Control Panel')
+        .setDescription('Manage your room using buttons or commands:\n• `,vc permit @user`\n• `,vc remove @user`');
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('vc_lock').setLabel('🔒 Lock').setStyle(ButtonStyle.Secondary),
@@ -622,23 +643,33 @@ client.on('messageCreate', async (message) => {
   }
 
   if (db.config.selfiesChannelId && message.channel.id === db.config.selfiesChannelId) {
-    const hasImage = message.attachments.size > 0 || message.embeds.length > 0;
-    if (!hasImage) {
-      await message.delete().catch(() => {});
-      return;
-    } else {
-      await message.react('👑').catch(() => {});
+    const isOwner = message.author.id === message.guild.ownerId || message.member?.roles.cache.has(db.config.ownerRoleId);
+    const isBot = message.author.id === client.user.id;
+
+    if (!isOwner && !isBot) {
+      const hasImage = message.attachments.size > 0 || message.embeds.length > 0;
+      if (!hasImage) {
+        await message.delete().catch(() => {});
+        return;
+      } else {
+        await message.react('👑').catch(() => {});
+      }
     }
   }
 
   if (db.config.clipsChannelId && message.channel.id === db.config.clipsChannelId) {
-    const hasMedia = message.attachments.size > 0 || message.content.includes('http');
-    if (!hasMedia) {
-      await message.delete().catch(() => {});
-      return;
-    } else {
-      await message.react('⬆️').catch(() => {});
-      await message.react('⬇️').catch(() => {});
+    const isOwner = message.author.id === message.guild.ownerId || message.member?.roles.cache.has(db.config.ownerRoleId);
+    const isBot = message.author.id === client.user.id;
+
+    if (!isOwner && !isBot) {
+      const hasMedia = message.attachments.size > 0 || message.content.includes('http');
+      if (!hasMedia) {
+        await message.delete().catch(() => {});
+        return;
+      } else {
+        await message.react('⬆️').catch(() => {});
+        await message.react('⬇️').catch(() => {});
+      }
     }
   }
 
@@ -882,6 +913,26 @@ client.on('messageCreate', async (message) => {
     return message.channel.send('✅ Sticky message removed.');
   }
 
+  if (command === 'vc') {
+    const sub = args[0]?.toLowerCase();
+    const target = message.mentions.members.first();
+
+    if (!message.member.voice.channel || !message.member.voice.channel.name.startsWith('🔊 ')) {
+      return message.channel.send('❌ You must be in your temporary voice room.');
+    }
+
+    if (sub === 'permit' && target) {
+      await message.member.voice.channel.permissionOverwrites.edit(target.id, { Connect: true, ViewChannel: true });
+      return message.channel.send(`✅ Permitted <@${target.id}> to join.`);
+    }
+
+    if (sub === 'remove' && target) {
+      await message.member.voice.channel.permissionOverwrites.edit(target.id, { Connect: false });
+      if (target.voice.channelId === message.member.voice.channel.id) await target.voice.disconnect().catch(() => {});
+      return message.channel.send(`⛔ Removed permissions from <@${target.id}>.`);
+    }
+  }
+
   if (command === 'quote') {
     const targetMsg = message.reference ? await message.channel.messages.fetch(message.reference.messageId).catch(() => null) : null;
     if (!targetMsg) return message.channel.send('Reply to a message with `,quote` to quote it!');
@@ -889,16 +940,16 @@ client.on('messageCreate', async (message) => {
     const canvas = createCanvas(800, 300);
     const ctx = canvas.getContext('2d');
 
-    ctx.fillStyle = '#0f0f11';
+    ctx.fillStyle = '#1e1f22';
     ctx.fillRect(0, 0, 800, 300);
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = '28px sans-serif';
-    ctx.fillText(`"${targetMsg.content}"`, 50, 140, 700);
+    ctx.font = 'bold 24px sans-serif';
+    ctx.fillText(`"${targetMsg.content.slice(0, 180)}"`, 40, 120);
 
-    ctx.fillStyle = '#8e9297';
-    ctx.font = '22px sans-serif';
-    ctx.fillText(`— ${targetMsg.author.tag}`, 50, 210);
+    ctx.fillStyle = '#b5bac1';
+    ctx.font = '20px sans-serif';
+    ctx.fillText(`— ${targetMsg.author.tag}`, 40, 220);
 
     const attachment = new AttachmentBuilder(canvas.toBuffer(), { name: 'quote.png' });
     const qChan = message.guild.channels.cache.get(db.config.quoteChannelId);
@@ -1048,15 +1099,71 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.showModal(modal);
     }
 
+    if (interaction.customId === 'vc_lock') {
+      if (!interaction.member.voice.channel || !interaction.member.voice.channel.name.startsWith('🔊 ')) return interaction.reply({ content: '❌ Must be in your temp room.', ephemeral: true });
+      await interaction.member.voice.channel.permissionOverwrites.edit(interaction.guild.id, { Connect: false });
+      return interaction.reply({ content: '🔒 Voice channel locked.', ephemeral: true });
+    }
+
+    if (interaction.customId === 'vc_unlock') {
+      if (!interaction.member.voice.channel || !interaction.member.voice.channel.name.startsWith('🔊 ')) return interaction.reply({ content: '❌ Must be in your temp room.', ephemeral: true });
+      await interaction.member.voice.channel.permissionOverwrites.edit(interaction.guild.id, { Connect: true });
+      return interaction.reply({ content: '🔓 Voice channel unlocked.', ephemeral: true });
+    }
+
+    if (interaction.customId === 'ticket_close') {
+      await interaction.reply('🔒 Generating transcript and closing ticket...');
+      await sendTranscript(interaction.channel, 'Ticket');
+      setTimeout(() => interaction.channel.delete().catch(() => {}), 4000);
+    }
+
+    if (interaction.customId === 'ticket_claim') {
+      await interaction.reply(`🙋 Ticket claimed by <@${interaction.user.id}>!`);
+    }
+
+    if (interaction.customId === 'ticket_unclaim') {
+      await interaction.reply(`🚪 Ticket unclaimed by <@${interaction.user.id}>.`);
+    }
+
+    if (interaction.customId === 'ticket_hide') {
+      if (db.config.staffRoleId) await interaction.channel.permissionOverwrites.edit(db.config.staffRoleId, { ViewChannel: false });
+      await interaction.reply({ content: '🙈 Ticket hidden from staff.', ephemeral: true });
+    }
+
+    if (interaction.customId === 'ticket_unhide') {
+      if (db.config.staffRoleId) await interaction.channel.permissionOverwrites.edit(db.config.staffRoleId, { ViewChannel: true });
+      await interaction.reply({ content: '👁 Ticket visible to staff.', ephemeral: true });
+    }
+
+    if (interaction.customId === 'ticket_add_member') {
+      const modal = new ModalBuilder().setCustomId('modal_ticket_add').setTitle('Add Member');
+      const input = new TextInputBuilder().setCustomId('mem_id').setLabel('User ID').setStyle(TextInputStyle.Short).setRequired(true);
+      modal.addComponents(new ActionRowBuilder().addComponents(input));
+      return interaction.showModal(modal);
+    }
+
+    if (interaction.customId === 'ticket_remove_member') {
+      const modal = new ModalBuilder().setCustomId('modal_ticket_remove').setTitle('Remove Member');
+      const input = new TextInputBuilder().setCustomId('mem_id').setLabel('User ID').setStyle(TextInputStyle.Short).setRequired(true);
+      modal.addComponents(new ActionRowBuilder().addComponents(input));
+      return interaction.showModal(modal);
+    }
+
     if (interaction.customId.startsWith('ban_approve_')) {
       const targetId = interaction.customId.split('_')[2];
       await interaction.guild.members.ban(targetId, { reason: 'Approved Ban Request' }).catch(() => {});
-      return interaction.reply(`✅ Approved ban for <@${targetId}>.`);
+      
+      const disabledEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+        .setColor('#57F287')
+        .setFooter({ text: `Approved by ${interaction.user.tag}` });
+      return interaction.update({ embeds: [disabledEmbed], components: [] });
     }
 
     if (interaction.customId.startsWith('ban_deny_')) {
-      const targetId = interaction.customId.split('_')[2];
-      return interaction.reply(`❌ Denied ban for <@${targetId}>.`);
+      const disabledEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+        .setColor('#ED4245')
+        .setFooter({ text: `Denied by ${interaction.user.tag}` });
+      return interaction.update({ embeds: [disabledEmbed], components: [] });
     }
 
     if (interaction.customId.startsWith('vr_approve_')) {
@@ -1066,14 +1173,19 @@ client.on('interactionCreate', async (interaction) => {
         profile[gKey].verified = true;
         db.userRanks.set(uId, profile);
         await saveDB();
-        return interaction.reply(`✅ Approved rank for <@${uId}>.`);
       }
+
+      const disabledEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+        .setColor('#57F287')
+        .setFooter({ text: `Approved by ${interaction.user.tag}` });
+      return interaction.update({ embeds: [disabledEmbed], components: [] });
     }
 
-    if (interaction.customId === 'ticket_close') {
-      await interaction.reply('🔒 Generating transcript and closing ticket...');
-      await sendTranscript(interaction.channel, 'Ticket');
-      setTimeout(() => interaction.channel.delete().catch(() => {}), 4000);
+    if (interaction.customId.startsWith('vr_deny_')) {
+      const disabledEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+        .setColor('#ED4245')
+        .setFooter({ text: `Denied by ${interaction.user.tag}` });
+      return interaction.update({ embeds: [disabledEmbed], components: [] });
     }
   }
 
@@ -1102,12 +1214,34 @@ client.on('interactionCreate', async (interaction) => {
           .setTitle(`🎟 Ticket #${numStr}`)
           .setDescription(`**Owner:** <@${interaction.user.id}>\n**Reason:** ${reason}`);
 
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('ticket_close').setLabel('Close Ticket').setStyle(ButtonStyle.Danger)
+        const row1 = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('ticket_close').setLabel('Close').setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId('ticket_claim').setLabel('Claim').setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId('ticket_unclaim').setLabel('Unclaim').setStyle(ButtonStyle.Secondary)
         );
-        await chan.send({ embeds: [embed], components: [row] });
+
+        const row2 = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('ticket_hide').setLabel('Hide').setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId('ticket_unhide').setLabel('Unhide').setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId('ticket_add_member').setLabel('Add Member').setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId('ticket_remove_member').setLabel('Remove Member').setStyle(ButtonStyle.Secondary)
+        );
+
+        await chan.send({ embeds: [embed], components: [row1, row2] });
         return interaction.reply({ content: `Ticket created: ${chan}`, ephemeral: true });
       }
+    }
+
+    if (interaction.customId === 'modal_ticket_add') {
+      const mId = interaction.fields.getTextInputValue('mem_id').trim();
+      await interaction.channel.permissionOverwrites.edit(mId, { ViewChannel: true, SendMessages: true }).catch(() => {});
+      return interaction.reply({ content: `✅ Added <@${mId}> to ticket.`, ephemeral: true });
+    }
+
+    if (interaction.customId === 'modal_ticket_remove') {
+      const mId = interaction.fields.getTextInputValue('mem_id').trim();
+      await interaction.channel.permissionOverwrites.edit(mId, { ViewChannel: false }).catch(() => {});
+      return interaction.reply({ content: `⛔ Removed <@${mId}> from ticket.`, ephemeral: true });
     }
   }
 });
